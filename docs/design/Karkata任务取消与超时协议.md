@@ -113,6 +113,7 @@ function awaitWithAbort<T>(
 - 可选上下文 Provider。
 - `resolveInstructions()` 动态指导函数。
 - `contextBudget.estimateTokens()` 上下文 token 估算器。
+- Human-in-the-Loop 用户回答等待。
 - Runtime 中任何可能长时间等待的用户回调。
 
 上述代码是语义示意。实现还应在竞争结束后附加空的 rejection handler 或等价处理，保证迟到的 operation rejection 不会形成未处理 Promise rejection。
@@ -129,6 +130,7 @@ Runtime 一旦因手动取消或超时停止等待，底层操作的任何迟到
 - 不向订阅者发送新运行状态。
 - 不调用后续 LLM，也不提交 Resolver 的迟到指导。
 - 不提交迟到的上下文估算或更新 `contextUsage`。
+- 不接受迟到的 Human-in-the-Loop 回答，也不恢复旧运行或追加回答 Tool Result。
 
 每个异步续体在提交状态前必须确认：
 
@@ -139,6 +141,8 @@ if (agent.currentRun?.runId !== run.runId || run.signal.aborted) {
 ```
 
 这个 `runId` 门禁还可以防止上一次运行的迟到回调污染已经开始的新运行。
+
+Human-in-the-Loop 的 `respond(requestId, answer)` 是额外的同步线性化点：只有请求 ID 与当前运行的唯一未决请求匹配，且 signal 尚未终止时才接受一次。取消、超时或 dispose 完成清理后，同一请求 ID 永久返回 `false`。用户等待不创建独立计时器，继续受整次运行的 `timeoutMs` 约束。
 
 ## 7. 状态提交顺序
 

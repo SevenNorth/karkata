@@ -134,8 +134,14 @@ sequenceDiagram
     Core->>Core: 追加 AssistantMessage
 
     loop 按 toolCalls 原顺序
-        Core->>Tool: 校验并执行 ToolCall
-        Tool-->>Core: 输出或错误
+        alt ask_user 特殊工具
+            Core-->>Host: 发布 HumanInputRequest
+            Host->>Core: respond(requestId, answer)
+            Core->>Core: 生成回答 Tool Result
+        else 普通工具
+            Core->>Tool: 校验并执行 ToolCall
+            Tool-->>Core: 输出或错误
+        end
         Core->>Core: 追加 ToolResultMessage(callId)
     end
 
@@ -151,6 +157,7 @@ sequenceDiagram
 
 - 参数校验失败、工具已变更或执行抛错时，生成 `isError: true` 的工具结果。
 - 一个工具失败不会默认跳过同批后续 Tool Call，但每次执行前都重新检查取消信号与工具版本。
+- 启用 Human-in-the-Loop 后，`ask_user` 按原顺序发布请求并等待；有效回答生成关联原 `callId` 的 Tool Result 后才处理同批下一项。
 - 发生任务级中断或超时时，停止执行后续 Tool Call。
 
 ## 6. 会话语义
@@ -195,6 +202,8 @@ await agent.send('开始处理另一个客户')
 
 状态快照在运行期间可以展示 `committedHistory + runMessages`，但后续新运行只使用 `committedHistory`。
 
+等待用户输入时，运行状态中的 `runMessages` 已包含发起 `ask_user` 的 AssistantMessage，暂时还没有对应 Tool Result。`HumanInputRequest` 是独立控制协议，不写入消息历史；只有 `respond()` 接受有效回答后才生成模型可见的 Tool Result。若等待期间中止、超时或 dispose，整个 `runMessages` 仍被丢弃，不会留下未配对 Tool Call。
+
 若启用上下文预算，`CONTEXT_LIMIT_EXCEEDED` 和 `CONTEXT_ESTIMATION_ERROR` 与其他运行错误遵循相同原子提交规则：当前 `runMessages` 被丢弃，之前的 `committedHistory` 保留。`AgentState.contextUsage.usedTokens` 是独立的 UI 预算投影，可以保留最近一次有效预算检查值，不属于会话消息，也不会进入下一次模型请求。`clearHistory()` 清空消息并将其重置为 `0`。
 
 这个设计避免将不完整的 assistant/tool 序列传给下一次 LLM 调用。它不代表工具副作用可以回滚；工具已经完成的外部操作仍然可能存在。
@@ -212,3 +221,4 @@ Agent 内部保留完整规范化历史，但 `AgentState` 默认只暴露适合
 - 同一 Agent 的第二次 `send()` 默认看到第一次成功会话。
 - 失败或中断的运行不会在下次模型请求中留下未配对 Tool Call。
 - `clearHistory()` 在运行期间不能改变正在使用的上下文。
+- Human-in-the-Loop 回答与原 Tool Call ID 配对，终止后的迟到回答不能进入历史。

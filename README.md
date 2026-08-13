@@ -43,6 +43,7 @@ const agent = createAgent({
       maxTokens: 120_000,
       estimateTokens: (request, { signal }) => estimateModelInputTokens(request, { signal }),
     },
+    humanInput: {},
   },
 })
 
@@ -53,11 +54,18 @@ const unsubscribe = agent.subscribe((state) => {
   }
 })
 
+const unsubscribeRequests = agent.subscribeRequests((request) => {
+  showQuestion(request.prompt).then((answer) => {
+    agent.respond(request.id, answer)
+  })
+})
+
 console.log(agent.listToolScopes())
 console.log(agent.listTools({ scope: 'global' }))
 
 const result = await agent.send('Find order 123')
 unsubscribe()
+unsubscribeRequests()
 ```
 
 Scopes are user-defined grouping keys. Empty scopes remain discoverable until explicitly removed with `agent.removeToolScope(scope)`; `global` follows the same lifecycle as any other scope.
@@ -69,6 +77,8 @@ Karkata always sends a built-in runtime system prompt. `systemPrompt` adds stati
 Model failures are exposed as structured `AgentError` values with a stable `code`, safe `message`, `retryable` flag, and optional HTTP `statusCode`. OpenAI-compatible calls distinguish network, authentication, rate-limit, invalid-response, and provider failures; only network failures, HTTP 429, and HTTP 5xx are retried. Provider response bodies, request bodies, authorization data, and original error causes are not copied into `AgentResult` or `AgentState`. Custom adapters can throw the Core `ModelError` class to participate in the same classification contract; unclassified errors remain `MODEL_ERROR` and are not retryable.
 
 Optional `contextBudget` protects each model call before it is sent. The estimator receives the complete frozen request, including system instructions, committed history, current run messages, and tool schemas. `state.contextUsage` exposes only `{ maxTokens, usedTokens }` for UI rendering; `usedTokens` is the latest request estimate, not cumulative API usage. Estimates equal to the limit are allowed, while larger requests fail with `CONTEXT_LIMIT_EXCEEDED` without calling the model or committing the failed run. Karkata does not choose a tokenizer or compress history automatically; applications should provide an estimator appropriate for their model.
+
+Optional `humanInput: {}` enables Human-in-the-Loop questions. Karkata exposes a reserved `ask_user` tool to the model; when it is called, `state.status` becomes `waiting_for_input` and `subscribeRequests()` publishes a frozen request. The host resumes the same run with `respond(request.id, answer)`. Waiting obeys the run's existing timeout, `abort()`, and `dispose()` semantics, and late or duplicate responses are ignored. This model-initiated question is not an authorization boundary: applications must still enforce permissions for sensitive tools.
 
 `createAgent()` is the concise OpenAI-compatible entry point. It creates an `OpenAICompatibleAdapter` internally while keeping provider settings separate from Runtime settings under `agent`. Advanced integrations can continue to use `new Agent({ llm: new OpenAICompatibleAdapter(...) })`, and other model protocols can implement the Core `LLMAdapter` contract without changing the Runtime.
 

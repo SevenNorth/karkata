@@ -1,11 +1,17 @@
 import { awaitWithAbort } from './abort.js'
-import { AgentBusyError, AgentDisposedError, errorMessage, ModelError } from './errors.js'
+import { AgentBusyError, AgentDisposedError, errorMessage, ModelError, ToolRegistrationError } from './errors.js'
+import { createHumanInputRequest, HUMAN_INPUT_TOOL, HUMAN_INPUT_TOOL_NAME, parseHumanInput, validateHumanInputConfig } from './humanInput.js'
 import { assembleSystemMessage, createInstructionResolverContext, PromptAssemblyError } from './prompt.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
 import { serializeToolOutput } from './toolOutput.js'
-import type { AgentConfig, AgentError, AgentMessage, AgentResult, AgentState, AgentStateListener, AssistantMessage, ContextEstimationContext, InitialTool, LLMRequest, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
+import type { AgentConfig, AgentError, AgentMessage, AgentRequest, AgentRequestListener, AgentResult, AgentState, AgentStateListener, AssistantMessage, ContextEstimationContext, InitialTool, LLMRequest, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
 
 interface Run { runId: string; controller: AbortController; termination: 'manual' | 'timeout' | 'dispose' | undefined; timer: ReturnType<typeof setTimeout>; step: number }
+interface PendingHumanInput {
+  readonly request: AgentRequest
+  readonly runId: string
+  readonly resolve: (answer: string) => void
+}
 
 class ContextEstimationError extends Error {
   override readonly name = 'ContextEstimationError'
@@ -15,9 +21,11 @@ export class Agent {
   readonly #config: Required<Pick<AgentConfig, 'maxSteps' | 'timeoutMs' | 'maxToolResultLength' | 'maxInstructionsLength'>> & AgentConfig
   readonly #registry: ToolRegistry
   readonly #listeners = new Set<AgentStateListener>()
+  readonly #requestListeners = new Set<AgentRequestListener>()
   #history: AgentMessage[] = []
   #runMessages: AgentMessage[] = []
   #run: Run | undefined
+  #pendingHumanInput: PendingHumanInput | undefined
   #disposePromise: Promise<void> | undefined
   #state: AgentState = { status: 'idle', step: 0, messages: [], updatedAt: Date.now() }
 
@@ -34,6 +42,8 @@ export class Agent {
         throw new TypeError('contextBudget.estimateTokens must be a function')
       }
     }
+    validateHumanInputConfig(config.humanInput)
+    if (config.humanInput !== undefined) this.#assertNoReservedTool(tools.map((initial) => this.#normalizeInitialTool(initial).tool), true)
     this.#config = { ...runtimeConfig, maxSteps: config.maxSteps ?? 20, timeoutMs: config.timeoutMs ?? 120_000, maxToolResultLength: config.maxToolResultLength ?? 20_000, maxInstructionsLength: config.maxInstructionsLength ?? 20_000 }
     this.#registry = new ToolRegistry(tools.map((initial) => this.#normalizeInitialTool(initial)))
     this.#commit({
@@ -46,10 +56,24 @@ export class Agent {
     this.#assertUsable(); this.#listeners.add(listener); this.#notifyOne(listener)
     return () => this.#listeners.delete(listener)
   }
-  registerTool(tool: Tool, options?: { scope?: string }): () => boolean { this.#assertUsable(); return this.#registry.register(tool, options?.scope) }
+  subscribeRequests(listener: AgentRequestListener): () => void {
+    this.#assertUsable(); this.#requestListeners.add(listener)
+    if (this.#pendingHumanInput) this.#notifyRequestListener(listener, this.#pendingHumanInput.request)
+    return () => this.#requestListeners.delete(listener)
+  }
+  respond(requestId: string, answer: string): boolean {
+    if (typeof answer !== 'string' || !answer.trim()) throw new TypeError('Human input answer must not be empty')
+    const pending = this.#pendingHumanInput
+    if (!pending || pending.request.id !== requestId || this.#run?.runId !== pending.runId || this.#run.controller.signal.aborted) return false
+    this.#pendingHumanInput = undefined
+    this.#commit({ status: 'running' })
+    pending.resolve(answer)
+    return true
+  }
+  registerTool(tool: Tool, options?: { scope?: string }): () => boolean { this.#assertUsable(); this.#assertNoReservedTool([tool]); return this.#registry.register(tool, options?.scope) }
   unregisterTool(name: string, options?: { scope?: string }): boolean { this.#assertUsable(); return this.#registry.unregister(name, options?.scope) }
-  replaceTool(tool: Tool, options?: { scope?: string }): void { this.#assertUsable(); this.#registry.replace(tool, options?.scope) }
-  replaceToolScope(scope: string, tools: readonly Tool[]): void { this.#assertUsable(); this.#registry.replaceScope(scope, tools) }
+  replaceTool(tool: Tool, options?: { scope?: string }): void { this.#assertUsable(); this.#assertNoReservedTool([tool]); this.#registry.replace(tool, options?.scope) }
+  replaceToolScope(scope: string, tools: readonly Tool[]): void { this.#assertUsable(); this.#assertNoReservedTool(tools); this.#registry.replaceScope(scope, tools) }
   listTools(options?: { scope?: string }): readonly Readonly<RegisteredToolInfo>[] { this.#assertUsable(); return this.#registry.list(options?.scope) }
   listToolScopes(): readonly string[] { this.#assertUsable(); return this.#registry.listScopes() }
   removeToolScope(scope: string): number { this.#assertUsable(); return this.#registry.removeScope(scope) }
@@ -84,6 +108,7 @@ export class Agent {
         run.step++
         const snapshot = this.#registry.snapshot()
         const tools = [...snapshot.registrations.values()].map(({ tool }) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }))
+        if (this.#config.humanInput !== undefined) tools.push(HUMAN_INPUT_TOOL)
         const toolInfo = Object.freeze([...snapshot.registrations.values()].map(({ tool, scope }) => Object.freeze({ name: tool.name, description: tool.description, scope })))
         const systemMessage = await assembleSystemMessage({
           systemPrompt: this.#config.systemPrompt,
@@ -114,7 +139,11 @@ export class Agent {
         for (const call of response.message.toolCalls) {
           this.#ensureCurrent(run)
           const registration = snapshot.registrations.get(call.name)
-          const resultMessage = registration ? await this.#executeTool(run, registration, call.callId, call.input) : this.#toolError(call.callId, call.name, 'TOOL_NOT_FOUND', `Tool not found: ${call.name}`)
+          const resultMessage = call.name === HUMAN_INPUT_TOOL_NAME && this.#config.humanInput !== undefined
+            ? await this.#requestHumanInput(run, call.callId, call.input)
+            : registration
+              ? await this.#executeTool(run, registration, call.callId, call.input)
+              : this.#toolError(call.callId, call.name, 'TOOL_NOT_FOUND', `Tool not found: ${call.name}`)
           this.#runMessages.push(resultMessage)
           this.#commit({ step: run.step, messages: [...this.#history, ...this.#runMessages], activeTool: undefined })
         }
@@ -148,9 +177,10 @@ export class Agent {
     this.#disposePromise = (async () => {
       if (this.#run) this.#terminate(this.#run, 'dispose')
       await Promise.resolve()
-      this.#history = []; this.#runMessages = []; this.#registry.clear()
+      this.#history = []; this.#runMessages = []; this.#pendingHumanInput = undefined; this.#registry.clear()
       this.#commit({ status: 'disposed', runId: undefined, step: 0, messages: [], activeTool: undefined, result: undefined, error: undefined })
       this.#listeners.clear()
+      this.#requestListeners.clear()
     })()
     return this.#disposePromise
   }
@@ -195,13 +225,23 @@ export class Agent {
     try {
       const output = await awaitWithAbort(Promise.resolve(registration.tool.execute(parsed.data, { signal: run.controller.signal, runId: run.runId, step: run.step })), run.controller.signal)
       this.#ensureCurrent(run)
-      let content = serializeToolOutput(output)
-      if (content.length > this.#config.maxToolResultLength) content = `${content.slice(0, this.#config.maxToolResultLength)}\n[truncated]`
-      return { role: 'tool', callId, name: registration.tool.name, content, isError: false }
+      return { role: 'tool', callId, name: registration.tool.name, content: this.#serializeToolResult(output), isError: false }
     } catch (error) {
       if (run.controller.signal.aborted) throw error
       return this.#toolError(callId, registration.tool.name, 'TOOL_EXECUTION_ERROR', errorMessage(error))
     }
+  }
+  async #requestHumanInput(run: Run, callId: string, input: unknown): Promise<ToolResultMessage> {
+    const parsed = parseHumanInput(input)
+    if (!parsed.success) return this.#toolError(callId, HUMAN_INPUT_TOOL_NAME, 'TOOL_INVALID_INPUT', parsed.error.message)
+    const request = createHumanInputRequest(run.runId, run.step, parsed.data.question)
+    const answer = await awaitWithAbort(new Promise<string>((resolve) => {
+      this.#pendingHumanInput = { request, runId: run.runId, resolve }
+      this.#commit({ status: 'waiting_for_input', step: run.step, messages: [...this.#history, ...this.#runMessages], activeTool: undefined })
+      for (const listener of this.#requestListeners) this.#notifyRequestListener(listener, request)
+    }), run.controller.signal)
+    this.#ensureCurrent(run)
+    return { role: 'tool', callId, name: HUMAN_INPUT_TOOL_NAME, content: this.#serializeToolResult({ answer }), isError: false }
   }
   #toolError(callId: string, name: string, code: string, message: string): ToolResultMessage { return { role: 'tool', callId, name, content: JSON.stringify({ error: { code, message } }), isError: true } }
   #validateAssistant(message: AssistantMessage): void { if (!message.content && !message.toolCalls?.length) throw new Error('Assistant message must contain content or tool calls') }
@@ -210,14 +250,27 @@ export class Agent {
   #fail(run: Run, error: AgentError): AgentResult { const result: AgentResult = { status: 'error', runId: run.runId, error, steps: run.step }; this.#finish(run, result); return result }
   #finish(run: Run, result: AgentResult): void {
     clearTimeout(run.timer); if (this.#run?.runId === run.runId) this.#run = undefined
-    this.#runMessages = []
+    this.#runMessages = []; if (this.#pendingHumanInput?.runId === run.runId) this.#pendingHumanInput = undefined
     if (run.termination === 'dispose') return
     this.#commit({ status: result.status, runId: run.runId, step: run.step, messages: this.#history, activeTool: undefined, result, error: result.status === 'error' ? result.error : undefined })
   }
   #commit(patch: Partial<AgentState>): void { this.#state = structuredClone({ ...this.#state, ...patch, updatedAt: Date.now() }); for (const listener of this.#listeners) this.#notifyOne(listener) }
   #notifyOne(listener: AgentStateListener): void { try { listener(this.#state) } catch { /* Subscribers are isolated. */ } }
+  #notifyRequestListener(listener: AgentRequestListener, request: AgentRequest): void { try { listener(request) } catch { /* Subscribers are isolated. */ } }
+  #serializeToolResult(output: unknown): string {
+    const content = serializeToolOutput(output)
+    return content.length > this.#config.maxToolResultLength
+      ? `${content.slice(0, this.#config.maxToolResultLength)}\n[truncated]`
+      : content
+  }
   #normalizeInitialTool(initial: InitialTool): { tool: Tool; scope?: string } {
     return 'tool' in initial ? { tool: initial.tool, scope: initial.scope } : { tool: initial }
+  }
+  #assertNoReservedTool(tools: readonly Tool[], enabled = this.#config.humanInput !== undefined): void {
+    if (!enabled) return
+    if (tools.some((tool) => tool.name === HUMAN_INPUT_TOOL_NAME)) {
+      throw new ToolRegistrationError(`Tool name is reserved while human input is enabled: ${HUMAN_INPUT_TOOL_NAME}`)
+    }
   }
   #assertUsable(): void { if (this.#state.status === 'disposed' || this.#disposePromise) throw new AgentDisposedError('Agent has been disposed') }
 }

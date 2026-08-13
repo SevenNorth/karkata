@@ -54,6 +54,17 @@ export interface ContextBudgetConfig {
   readonly estimateTokens: ContextTokenEstimator
 }
 
+export type HumanInputConfig = Readonly<Record<string, never>>
+export interface HumanInputRequest {
+  readonly type: 'human_input'
+  readonly id: string
+  readonly runId: string
+  readonly step: number
+  readonly prompt: string
+}
+export type AgentRequest = HumanInputRequest
+export type AgentRequestListener = (request: Readonly<AgentRequest>) => void
+
 export interface ToolContext { signal: AbortSignal; runId: string; step: number }
 export type ToolOutput =
   | string
@@ -105,7 +116,7 @@ export type InstructionResolver = (
   context: InstructionResolverContext,
 ) => string | null | undefined | Promise<string | null | undefined>
 
-export type AgentStatus = 'idle' | 'running' | 'completed' | 'error' | 'aborted' | 'disposed'
+export type AgentStatus = 'idle' | 'running' | 'waiting_for_input' | 'completed' | 'error' | 'aborted' | 'disposed'
 export type ModelErrorCode =
   | 'MODEL_NETWORK_ERROR' | 'MODEL_AUTH_ERROR' | 'MODEL_RATE_LIMIT'
   | 'MODEL_INVALID_RESPONSE' | 'MODEL_PROVIDER_ERROR'
@@ -146,6 +157,7 @@ export interface AgentConfig {
   resolveInstructions?: InstructionResolver
   maxInstructionsLength?: number
   contextBudget?: ContextBudgetConfig
+  humanInput?: HumanInputConfig
   maxSteps?: number
   timeoutMs?: number
   maxToolResultLength?: number

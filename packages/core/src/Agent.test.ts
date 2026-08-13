@@ -351,6 +351,334 @@ describe('Agent', () => {
     expect(agent.state.contextUsage).not.toBe(before)
   })
 
+  it('does not inject the human input tool unless the capability is enabled', async () => {
+    const llm = new ScriptedLLM([message('done')])
+    const agent = new Agent({ llm })
+
+    await agent.send('continue')
+
+    expect(llm.requests[0]!.tools).toEqual([])
+  })
+
+  it.each([null, [], { unexpected: true }])('rejects invalid human input configuration %#', (humanInput) => {
+    expect(() => new Agent({
+      llm: new ScriptedLLM([]),
+      humanInput: humanInput as never,
+    })).toThrow('humanInput must be an empty configuration object')
+  })
+
+  it('publishes a frozen human input request and resumes the same run after a response', async () => {
+    const llm = new ScriptedLLM([
+      toolCall('call-1', 'ask_user', { question: 'Which account should I use?' }),
+      message('done'),
+    ])
+    const agent = new Agent({ llm, humanInput: {} })
+    const requests: unknown[] = []
+    let resolveRequest!: () => void
+    const requestPublished = new Promise<void>((resolve) => { resolveRequest = resolve })
+    agent.subscribeRequests((request) => {
+      requests.push(request)
+      resolveRequest()
+    })
+
+    const run = agent.send('make a payment')
+    await requestPublished
+
+    expect(llm.requests[0]!.tools.map(({ name }) => name)).toEqual(['ask_user'])
+    expect(agent.state).toMatchObject({ status: 'waiting_for_input', step: 1 })
+    expect(requests).toHaveLength(1)
+    const request = requests[0] as { id: string; type: string; runId: string; step: number; prompt: string }
+    expect(request).toEqual({
+      type: 'human_input',
+      id: expect.any(String),
+      runId: agent.state.runId,
+      step: 1,
+      prompt: 'Which account should I use?',
+    })
+    expect(Object.isFrozen(request)).toBe(true)
+
+    expect(agent.respond(request.id, 'Savings')).toBe(true)
+    await expect(run).resolves.toMatchObject({ status: 'completed', content: 'done' })
+    expect(llm.requests[1]!.messages.at(-1)).toEqual({
+      role: 'tool',
+      callId: 'call-1',
+      name: 'ask_user',
+      content: '{"answer":"Savings"}',
+      isError: false,
+    })
+  })
+
+  it('replays the pending request to late subscribers and isolates request listener errors', async () => {
+    const llm = new ScriptedLLM([
+      toolCall('call-1', 'ask_user', { question: 'Continue?' }),
+      message('done'),
+    ])
+    const agent = new Agent({ llm, humanInput: {} })
+    let pendingId = ''
+    const requestPublished = new Promise<void>((resolve) => {
+      agent.subscribeRequests((request) => {
+        pendingId = request.id
+        resolve()
+      })
+    })
+    agent.subscribeRequests(() => { throw new Error('UI failed') })
+    const run = agent.send('start')
+    await requestPublished
+
+    const lateListener = vi.fn()
+    agent.subscribeRequests(lateListener)
+
+    expect(lateListener).toHaveBeenCalledOnce()
+    expect(lateListener).toHaveBeenCalledWith(expect.objectContaining({ id: pendingId, prompt: 'Continue?' }))
+    expect(agent.respond(pendingId, 'Yes')).toBe(true)
+    await expect(run).resolves.toMatchObject({ status: 'completed' })
+  })
+
+  it('reports invalid ask_user input as a tool error without publishing a request', async () => {
+    const llm = new ScriptedLLM([
+      toolCall('call-1', 'ask_user', { question: '   ' }),
+      message('recovered'),
+    ])
+    const agent = new Agent({ llm, humanInput: {} })
+    const listener = vi.fn()
+    agent.subscribeRequests(listener)
+
+    await expect(agent.send('start')).resolves.toMatchObject({ status: 'completed', content: 'recovered' })
+
+    expect(listener).not.toHaveBeenCalled()
+    expect(llm.requests[1]!.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      callId: 'call-1',
+      name: 'ask_user',
+      isError: true,
+      content: expect.stringContaining('TOOL_INVALID_INPUT'),
+    })
+  })
+
+  it('validates responses and accepts only the current request once', async () => {
+    const llm = new ScriptedLLM([
+      toolCall('call-1', 'ask_user', { question: 'Continue?' }),
+      message('done'),
+    ])
+    const agent = new Agent({ llm, humanInput: {} })
+    let pendingId = ''
+    const requestPublished = new Promise<void>((resolve) => {
+      agent.subscribeRequests((request) => { pendingId = request.id; resolve() })
+    })
+    const run = agent.send('start')
+    await requestPublished
+
+    expect(() => agent.respond(pendingId, '   ')).toThrow('answer must not be empty')
+    expect(() => agent.respond(pendingId, 42 as never)).toThrow('answer must not be empty')
+    expect(agent.respond('wrong-id', 'Yes')).toBe(false)
+    expect(agent.state.status).toBe('waiting_for_input')
+    expect(agent.respond(pendingId, 'Yes')).toBe(true)
+    expect(agent.respond(pendingId, 'Again')).toBe(false)
+
+    await expect(run).resolves.toMatchObject({ status: 'completed' })
+    expect(agent.respond(pendingId, 'Too late')).toBe(false)
+    expect(agent.respond('missing', 'No request')).toBe(false)
+  })
+
+  it('waits for multiple human input calls in their original order', async () => {
+    const llm = new ScriptedLLM([
+      {
+        message: {
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { callId: 'call-1', name: 'ask_user', input: { question: 'First?' } },
+            { callId: 'call-2', name: 'ask_user', input: { question: 'Second?' } },
+          ],
+        },
+      },
+      message('done'),
+    ])
+    const agent = new Agent({ llm, humanInput: {} })
+    const prompts: string[] = []
+    agent.subscribeRequests((request) => {
+      prompts.push(request.prompt)
+      expect(agent.respond(request.id, prompts.length === 1 ? 'One' : 'Two')).toBe(true)
+    })
+
+    await expect(agent.send('ask twice')).resolves.toMatchObject({ status: 'completed' })
+
+    expect(prompts).toEqual(['First?', 'Second?'])
+    expect(llm.requests[1]!.messages.slice(-2)).toEqual([
+      { role: 'tool', callId: 'call-1', name: 'ask_user', content: '{"answer":"One"}', isError: false },
+      { role: 'tool', callId: 'call-2', name: 'ask_user', content: '{"answer":"Two"}', isError: false },
+    ])
+  })
+
+  it('applies the tool result length limit to human input answers', async () => {
+    const llm = new ScriptedLLM([
+      toolCall('call-1', 'ask_user', { question: 'Details?' }),
+      message('done'),
+    ])
+    const agent = new Agent({ llm, humanInput: {}, maxToolResultLength: 10 })
+    agent.subscribeRequests((request) => { agent.respond(request.id, 'a long answer') })
+
+    await agent.send('start')
+
+    expect(llm.requests[1]!.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      callId: 'call-1',
+      content: '{"answer":\n[truncated]',
+      isError: false,
+    })
+  })
+
+  it('reserves ask_user only while human input is enabled', async () => {
+    const askUser: Tool = { name: 'ask_user', description: 'Custom ask', inputSchema: z.object({}), execute: () => 'custom' }
+
+    expect(() => new Agent({ llm: new ScriptedLLM([]), humanInput: {}, tools: [askUser] })).toThrow('Tool name is reserved while human input is enabled: ask_user')
+
+    const enabled = new Agent({ llm: new ScriptedLLM([]), humanInput: {} })
+    expect(() => enabled.registerTool(askUser)).toThrow('Tool name is reserved while human input is enabled: ask_user')
+    expect(() => enabled.replaceTool(askUser)).toThrow('Tool name is reserved while human input is enabled: ask_user')
+    expect(() => enabled.replaceToolScope('custom', [askUser])).toThrow('Tool name is reserved while human input is enabled: ask_user')
+
+    const llm = new ScriptedLLM([toolCall('call-1', 'ask_user', {}), message('done')])
+    const disabled = new Agent({ llm, tools: [askUser] })
+    await expect(disabled.send('custom')).resolves.toMatchObject({ status: 'completed' })
+    expect(llm.requests[1]!.messages.at(-1)).toMatchObject({ name: 'ask_user', content: 'custom', isError: false })
+  })
+
+  it('commits paired human input messages only when the run completes', async () => {
+    const successLLM = new ScriptedLLM([
+      toolCall('call-1', 'ask_user', { question: 'Continue?' }),
+      message('done'),
+    ])
+    const successAgent = new Agent({ llm: successLLM, humanInput: {} })
+    successAgent.subscribeRequests((request) => { successAgent.respond(request.id, 'Yes') })
+    await successAgent.send('start')
+    expect(successAgent.state.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', toolCalls: [expect.objectContaining({ callId: 'call-1' })] }),
+      expect.objectContaining({ role: 'tool', callId: 'call-1', isError: false }),
+    ]))
+
+    const failingAgent = new Agent({
+      llm: {
+        invoke: vi.fn()
+          .mockResolvedValueOnce(toolCall('call-2', 'ask_user', { question: 'Continue?' }))
+          .mockRejectedValueOnce(new Error('model failed')),
+      },
+      humanInput: {},
+    })
+    failingAgent.subscribeRequests((request) => { failingAgent.respond(request.id, 'Yes') })
+    await expect(failingAgent.send('start')).resolves.toMatchObject({ status: 'error', error: { code: 'MODEL_ERROR' } })
+    expect(failingAgent.state.messages).toEqual([])
+  })
+
+  it('remains busy while waiting for human input', async () => {
+    const agent = new Agent({
+      llm: new ScriptedLLM([toolCall('call-1', 'ask_user', { question: 'Wait?' })]),
+      humanInput: {},
+    })
+    let pendingId = ''
+    const requestPublished = new Promise<void>((resolve) => {
+      agent.subscribeRequests((request) => { pendingId = request.id; resolve() })
+    })
+    const run = agent.send('start')
+    await requestPublished
+
+    await expect(agent.send('another')).rejects.toThrow('already active')
+    expect(() => agent.clearHistory()).toThrow('Cannot clear history while running')
+
+    agent.abort()
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    expect(agent.respond(pendingId, 'Late')).toBe(false)
+  })
+
+  it('aborts a pending human input request and isolates a late response', async () => {
+    const llm = new ScriptedLLM([toolCall('call-1', 'ask_user', { question: 'Wait?' })])
+    const agent = new Agent({ llm, humanInput: {} })
+    let requestId = ''
+    const requestPublished = new Promise<void>((resolve) => {
+      agent.subscribeRequests((request) => { requestId = request.id; resolve() })
+    })
+    const run = agent.send('start')
+    await requestPublished
+
+    agent.abort()
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    expect(agent.state).toMatchObject({ status: 'aborted', messages: [] })
+    expect(agent.respond(requestId, 'Too late')).toBe(false)
+    await Promise.resolve()
+    expect(llm.requests).toHaveLength(1)
+  })
+
+  it('times out while waiting for human input', async () => {
+    vi.useFakeTimers()
+    try {
+      const llm = new ScriptedLLM([toolCall('call-1', 'ask_user', { question: 'Wait?' })])
+      const agent = new Agent({ llm, humanInput: {}, timeoutMs: 50 })
+      let requestId = ''
+      const requestPublished = new Promise<void>((resolve) => {
+        agent.subscribeRequests((request) => { requestId = request.id; resolve() })
+      })
+      const run = agent.send('start')
+      await requestPublished
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      await expect(run).resolves.toMatchObject({ status: 'error', error: { code: 'TIMEOUT' } })
+      expect(agent.state.messages).toEqual([])
+      expect(agent.respond(requestId, 'Too late')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('disposes while waiting for human input without accepting a late response', async () => {
+    const llm = new ScriptedLLM([toolCall('call-1', 'ask_user', { question: 'Wait?' })])
+    const agent = new Agent({ llm, humanInput: {} })
+    let requestId = ''
+    const requestPublished = new Promise<void>((resolve) => {
+      agent.subscribeRequests((request) => { requestId = request.id; resolve() })
+    })
+    const run = agent.send('start')
+    await requestPublished
+
+    await agent.dispose()
+
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    expect(agent.state.status).toBe('disposed')
+    expect(agent.respond(requestId, 'Too late')).toBe(false)
+  })
+
+  it('does not let an old request respond to a later run', async () => {
+    const llm = new ScriptedLLM([
+      toolCall('old-call', 'ask_user', { question: 'Old?' }),
+      toolCall('new-call', 'ask_user', { question: 'New?' }),
+      message('done'),
+    ])
+    const agent = new Agent({ llm, humanInput: {} })
+    const requestIds: string[] = []
+    let publishCount = 0
+    let resolvePublished!: () => void
+    let requestPublished = new Promise<void>((resolve) => { resolvePublished = resolve })
+    agent.subscribeRequests((request) => {
+      requestIds.push(request.id)
+      publishCount++
+      resolvePublished()
+    })
+
+    const oldRun = agent.send('old')
+    await requestPublished
+    agent.abort()
+    await oldRun
+
+    requestPublished = new Promise<void>((resolve) => { resolvePublished = resolve })
+    const newRun = agent.send('new')
+    await requestPublished
+    expect(publishCount).toBe(2)
+    expect(agent.respond(requestIds[0]!, 'Old answer')).toBe(false)
+    expect(agent.state.status).toBe('waiting_for_input')
+    expect(agent.respond(requestIds[1]!, 'New answer')).toBe(true)
+    await expect(newRun).resolves.toMatchObject({ status: 'completed' })
+  })
+
   it('executes a global tool supplied in the constructor', async () => {
     const llm = new ScriptedLLM([toolCall('call-1', 'sum', { a: 2, b: 3 }), message('5')])
     const sum: Tool<{ a: number; b: number }, number> = { name: 'sum', description: 'Add numbers', inputSchema: z.object({ a: z.number(), b: z.number() }), execute: ({ a, b }) => a + b }

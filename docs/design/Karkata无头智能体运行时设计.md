@@ -208,6 +208,7 @@ const agent = createAgent({
       maxTokens: 120_000,
       estimateTokens: (request, { signal }) => estimateModelInputTokens(request, { signal }),
     },
+    humanInput: {},
     maxSteps: 20,
     timeoutMs: 120_000,
     tools: [
@@ -222,7 +223,7 @@ const agent = createAgent({
 
 `tools` 用于构造时批量装配固定能力。普通 Tool 默认属于 `global` scope；需要分组管理时使用 `{ tool, scope }`。scope 是任意非空分组键，Core 不解释其业务含义，不与前端路由绑定。初始化批次会先整体校验，任一无效项或重名都会使构造失败。
 
-Core 始终提供不可覆盖的通用默认提示词。`systemPrompt` 是构造时确定的静态应用增强；`resolveInstructions` 是每次调用模型前执行的同步或异步指导函数。Resolver 只返回一段可信字符串，不需要返回 scope 结构；宿主可从传入的当前工具信息自行判断页面、模块或业务上下文。
+Core 始终提供不可覆盖的通用默认提示词。`systemPrompt` 是构造时确定的静态应用增强；`resolveInstructions` 是每次调用模型前执行的同步或异步指导函数。Resolver 只返回一段可信字符串，不需要返回 scope 结构；宿主可从传入的当前普通注册工具信息自行判断页面、模块或业务上下文。`ask_user` 等 Runtime 特殊能力由对应配置表达，不伪造用户 scope，也不进入 Resolver 的 Registry 工具投影。
 
 默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此未来 UI 不会把内部提示词作为对话消息回显。
 
@@ -322,6 +323,8 @@ flowchart TB
     Kind{"模型响应"}
     Validate["再次检查工具是否可用"]
     Execute["执行工具"]
+    Human{"ask_user？"}
+    Wait["发布请求并等待用户回答"]
     Record["记录工具调用与结果"]
     Limit{"超过步数或时间？"}
     Complete["完成并返回文本"]
@@ -329,7 +332,9 @@ flowchart TB
 
     Send --> Start --> Snapshot --> Context --> Invoke --> Kind
     Kind -->|"最终文本"| Complete
-    Kind -->|"工具调用"| Validate
+    Kind -->|"工具调用"| Human
+    Human -->|"是"| Wait --> Record
+    Human -->|"否"| Validate
     Validate -->|"可用"| Execute --> Record --> Limit
     Validate -->|"已移除"| Record
     Limit -->|"否"| Snapshot
@@ -346,6 +351,7 @@ flowchart TB
 type AgentStatus =
   | 'idle'
   | 'running'
+  | 'waiting_for_input'
   | 'completed'
   | 'error'
   | 'aborted'
@@ -372,7 +378,7 @@ interface AgentState {
 
 `contextUsage` 只在配置预算时存在，供 UI 直接呈现“当前预计占用 / 最大输入预算”。`usedTokens` 是最近一次模型调用前对完整请求的估算，不是 Provider 返回的累计 usage 或计费统计。构造后初始值为 `0`；每一步预算检查后更新；成功、模型失败或超限后保留最近值；`clearHistory()` 重置为 `0`。状态继续以隔离快照发布。
 
-`waiting` 暂不作为首版状态。等待 HTTP、工具或模型都属于 `running`，具体阶段通过 `activeTool` 或后续的活动事件表达。只有引入“等待用户回答”协议后，才需要增加 `waiting_for_input`。
+`waiting_for_input` 仅表示模型已通过 Human-in-the-Loop 特殊工具提出问题并存在未决请求。等待 HTTP、普通工具或模型仍属于 `running`。等待期间仍是同一个活动运行，不能再次 `send()` 或 `clearHistory()`，但可以 `abort()` 或 `dispose()`。
 
 ### 8.2 状态机
 
@@ -380,6 +386,10 @@ interface AgentState {
 stateDiagram-v2
     [*] --> idle
     idle --> running: send
+    running --> waiting_for_input: ask_user
+    waiting_for_input --> running: respond
+    waiting_for_input --> error: timeout
+    waiting_for_input --> aborted: abort
     running --> completed: 模型返回最终文本
     running --> error: 调用失败、超时或达到运行边界
     running --> aborted: abort
@@ -556,7 +566,7 @@ agent.registerTool(javascriptTool)
 
 ## 13. 前端框架无关 UI
 
-Core 首先通过 `send()`、`subscribe()` 和 `abort()` 提供框架无关的交互契约。React、Vue 或原生页面都可直接基于该契约构建 UI。
+Core 首先通过 `send()`、`subscribe()`、`subscribeRequests()`、`respond()` 和 `abort()` 提供框架无关的交互契约。React、Vue 或原生页面都可直接基于该契约构建 UI。
 
 可选通用 UI 应当作为独立包在后续实现：
 
@@ -576,17 +586,19 @@ panel.agent = agent
 
 ### 13.1 等待用户输入
 
-状态订阅不能同时承担用户回答通道。若后续需要 Agent 在任务中追问用户，应增加独立协议：
+配置 `humanInput: {}` 后，Runtime 在每一步模型请求中注入固定的 `ask_user` 特殊工具。模型调用它时，Agent 发布独立请求并暂停同一次 `send()`：
 
 ```ts
-agent.subscribeRequests((request) => {
-  showQuestion(request)
+const unsubscribe = agent.subscribeRequests((request) => {
+  showQuestion(request.prompt).then((answer) => {
+    agent.respond(request.id, answer)
+  })
 })
-
-agent.respond(request.id, answer)
 ```
 
-该能力会引入 `waiting_for_input` 状态、请求超时和取消语义，因此列入后续版本。
+请求是冻结的 `{ type: 'human_input', id, runId, step, prompt }` 快照。晚订阅者会立即收到当前未决请求；监听器异常彼此隔离。`respond()` 只接受当前 ID 的非空字符串一次，有效回答成为原 Tool Call 的成功 Tool Result，并受 `maxToolResultLength` 限制。错误 ID、重复或终止后的迟到回答返回 `false`，不会恢复旧运行。
+
+`ask_user` 仅在显式启用时为保留名称，不进入普通 Tool Registry、scope 或 `listTools()`。首版不提供结构化表单或独立请求超时，等待受整次运行的 `timeoutMs`、`abort()` 和 `dispose()` 控制。模型主动询问不是安全边界；敏感工具仍需由宿主执行强制授权。
 
 ## 14. 完整使用示例
 
@@ -704,7 +716,7 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 ### 阶段三：生态能力
 
 - 历史摘要策略。
-- 等待用户输入协议。
+- Human-in-the-Loop 用户输入协议。
 - 基于 Web Component 的可选 `@karkata/ui`。
 - checkpoint 与可插拔持久化。
 
