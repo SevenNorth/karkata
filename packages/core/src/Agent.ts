@@ -1,13 +1,13 @@
 import { awaitWithAbort } from './abort.js'
 import { AgentBusyError, AgentDisposedError, errorMessage } from './errors.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
-import type { AgentConfig, AgentError, AgentMessage, AgentResult, AgentState, AgentStateListener, AssistantMessage, Tool, ToolResultMessage, UserMessage } from './types.js'
+import type { AgentConfig, AgentError, AgentMessage, AgentResult, AgentState, AgentStateListener, AssistantMessage, InitialTool, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
 
 interface Run { runId: string; controller: AbortController; termination: 'manual' | 'timeout' | 'dispose' | undefined; timer: ReturnType<typeof setTimeout>; step: number }
 
 export class Agent {
   readonly #config: Required<Pick<AgentConfig, 'maxSteps' | 'timeoutMs' | 'maxToolResultLength'>> & AgentConfig
-  readonly #registry = new ToolRegistry()
+  readonly #registry: ToolRegistry
   readonly #listeners = new Set<AgentStateListener>()
   #history: AgentMessage[] = []
   #runMessages: AgentMessage[] = []
@@ -16,7 +16,9 @@ export class Agent {
   #state: AgentState = { status: 'idle', step: 0, messages: [], updatedAt: Date.now() }
 
   constructor(config: AgentConfig) {
-    this.#config = { ...config, maxSteps: config.maxSteps ?? 20, timeoutMs: config.timeoutMs ?? 120_000, maxToolResultLength: config.maxToolResultLength ?? 20_000 }
+    const { tools = [], ...runtimeConfig } = config
+    this.#config = { ...runtimeConfig, maxSteps: config.maxSteps ?? 20, timeoutMs: config.timeoutMs ?? 120_000, maxToolResultLength: config.maxToolResultLength ?? 20_000 }
+    this.#registry = new ToolRegistry(tools.map((initial) => this.#normalizeInitialTool(initial)))
     if (config.systemPrompt) this.#history.push({ role: 'system', content: config.systemPrompt })
     this.#commit({ messages: this.#history })
   }
@@ -29,6 +31,9 @@ export class Agent {
   unregisterTool(name: string, options?: { scope?: string }): boolean { this.#assertUsable(); return this.#registry.unregister(name, options?.scope) }
   replaceTool(tool: Tool, options?: { scope?: string }): void { this.#assertUsable(); this.#registry.replace(tool, options?.scope) }
   replaceToolScope(scope: string, tools: readonly Tool[]): void { this.#assertUsable(); this.#registry.replaceScope(scope, tools) }
+  listTools(options?: { scope?: string }): readonly Readonly<RegisteredToolInfo>[] { this.#assertUsable(); return this.#registry.list(options?.scope) }
+  listToolScopes(): readonly string[] { this.#assertUsable(); return this.#registry.listScopes() }
+  removeToolScope(scope: string): number { this.#assertUsable(); return this.#registry.removeScope(scope) }
   clearHistory(): void {
     this.#assertUsable(); if (this.#run) throw new AgentBusyError('Cannot clear history while running')
     this.#history = this.#config.systemPrompt ? [{ role: 'system', content: this.#config.systemPrompt }] : []
@@ -120,5 +125,8 @@ export class Agent {
   }
   #commit(patch: Partial<AgentState>): void { this.#state = structuredClone({ ...this.#state, ...patch, updatedAt: Date.now() }); for (const listener of this.#listeners) this.#notifyOne(listener) }
   #notifyOne(listener: AgentStateListener): void { try { listener(this.#state) } catch { /* Subscribers are isolated. */ } }
+  #normalizeInitialTool(initial: InitialTool): { tool: Tool; scope?: string } {
+    return 'tool' in initial ? { tool: initial.tool, scope: initial.scope } : { tool: initial }
+  }
   #assertUsable(): void { if (this.#state.status === 'disposed' || this.#disposePromise) throw new AgentDisposedError('Agent has been disposed') }
 }

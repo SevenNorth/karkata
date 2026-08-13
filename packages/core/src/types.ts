@@ -47,6 +47,18 @@ export function defineTool<TInput, TOutput>(tool: Tool<TInput, TOutput>): Tool<T
   return tool
 }
 
+export interface ScopedInitialTool {
+  readonly tool: Tool
+  readonly scope: string
+}
+export type InitialTool = Tool | ScopedInitialTool
+
+export interface RegisteredToolInfo {
+  readonly name: string
+  readonly description: string
+  readonly scope: string
+}
+
 export type AgentStatus = 'idle' | 'running' | 'completed' | 'error' | 'aborted' | 'disposed'
 export type AgentErrorCode =
   | 'MODEL_ERROR' | 'TOOL_NOT_FOUND' | 'TOOL_CHANGED' | 'TOOL_INVALID_INPUT'
@@ -73,6 +85,7 @@ export type AgentStateListener = (state: Readonly<AgentState>) => void
 
 export interface AgentConfig {
   llm: LLMAdapter
+  tools?: readonly InitialTool[]
   systemPrompt?: string
   maxSteps?: number
   timeoutMs?: number

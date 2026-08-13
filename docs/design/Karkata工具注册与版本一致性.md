@@ -7,6 +7,8 @@
 1. 模型根据旧 Schema 生成参数，却被交给同名的新工具实现。
 2. 旧组件的解注册回调在新工具注册后运行，误删新记录。
 
+路由切换只是作用域更新的一种示例。scope 本质上是使用方定义的任意非空分组键，也可以表示页面、模块、租户、插件或工作流阶段；Core 不解析其业务含义。
+
 ## 2. 核心决策
 
 - 每次注册都生成唯一的 `registrationId`，即使工具名称不变。
@@ -41,7 +43,7 @@ interface ToolSnapshot {
 
 - 默认作用域名称为 `global`。
 - 有效工具集合在所有作用域之间也必须名称唯一。
-- 路由工具不会隐式覆盖全局工具。
+- 任意作用域中的工具都不会隐式覆盖全局工具。
 - 所有按名称的写操作都需显式指定作用域，避免删除错误记录。
 - `replaceToolScope()` 先在内存中验证新集合内部及其他作用域的名称冲突，全部通过后再原子提交。
 
@@ -52,7 +54,33 @@ registerTool(tool: Tool, options?: { scope?: string }): UnregisterTool
 unregisterTool(name: string, options?: { scope?: string }): boolean
 replaceTool(tool: Tool, options?: { scope?: string }): void
 replaceToolScope(scope: string, tools: readonly Tool[]): void
+listTools(options?: { scope?: string }): readonly RegisteredToolInfo[]
+listToolScopes(): readonly string[]
+removeToolScope(scope: string): number
 ```
+
+构造时可通过 `AgentConfig.tools` 原子批量注册初始工具：
+
+```ts
+tools: [
+  globalTool,
+  { tool: auditTool, scope: 'workflow-review' },
+]
+```
+
+普通 Tool 使用 `global` scope，注册项使用显式 scope。整个初始化批次必须先完成校验和名称冲突检查，再一次提交；失败时不产生部分注册。
+
+### 4.2 作用域生命周期与查询
+
+Registry 独立维护已创建的 scope，而不是每次从非空工具集合推导：
+
+- `global` 在 Agent 构造时创建，即使没有全局工具也会被 `listToolScopes()` 返回。
+- 构造注册、`registerTool()` 和 `replaceToolScope()` 可以创建 scope。
+- `unregisterTool()` 删除最后一个工具或 `replaceToolScope(scope, [])` 清空工具后，scope 仍然存在。
+- `removeToolScope()` 是删除 scope 实体的唯一公开 API，同时原子删除其中全部工具。
+- 所有 scope 采用相同规则，`global` 也可以显式删除。
+
+`listTools()` 返回冻结的信息数组，每项只包含 `name`、`description` 和 `scope`；它不暴露 `execute`、`inputSchema`、`registrationId` 或内部 Map。`listTools({ scope })` 只过滤指定 scope。旧查询结果不随后续注册表变化。
 
 ## 5. 注册和解注册语义
 
@@ -175,4 +203,3 @@ sequenceDiagram
 - 旧解注册回调不会删除后来的同名注册。
 - 作用域整批替换在发生名称冲突时不会留下部分更新。
 - 快照 Schema、参数校验和工具实现始终来自同一 `registrationId`。
-

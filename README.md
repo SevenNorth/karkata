@@ -17,15 +17,7 @@ import { Agent, defineTool } from '@karkata/core'
 import { OpenAIAdapter } from '@karkata/openai'
 import { z } from 'zod'
 
-const agent = new Agent({
-  llm: new OpenAIAdapter({
-    model: 'your-model',
-    baseURL: 'https://example.com/v1',
-    apiKey: 'use-a-short-lived-token-or-proxy',
-  }),
-})
-
-agent.registerTool(defineTool({
+const getOrderTool = defineTool({
   name: 'get_order',
   description: 'Get an order by ID',
   inputSchema: z.object({ id: z.string() }),
@@ -33,15 +25,29 @@ agent.registerTool(defineTool({
     const response = await fetch(`/api/orders/${id}`, { signal })
     return response.json()
   },
-}))
+})
+
+const agent = new Agent({
+  llm: new OpenAIAdapter({
+    model: 'your-model',
+    baseURL: 'https://example.com/v1',
+    apiKey: 'use-a-short-lived-token-or-proxy',
+  }),
+  tools: [getOrderTool],
+})
 
 const unsubscribe = agent.subscribe((state) => {
   console.log(state.status, state.activeTool)
 })
 
+console.log(agent.listToolScopes())
+console.log(agent.listTools({ scope: 'global' }))
+
 const result = await agent.send('Find order 123')
 unsubscribe()
 ```
+
+Scopes are user-defined grouping keys. Empty scopes remain discoverable until explicitly removed with `agent.removeToolScope(scope)`; `global` follows the same lifecycle as any other scope.
 
 Do not embed long-lived model API keys in public browser bundles. Prefer an application proxy, short-lived token, or a custom authenticated `fetch` implementation.
 

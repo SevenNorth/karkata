@@ -1,5 +1,5 @@
 import { ToolRegistrationError } from './errors.js'
-import type { Tool } from './types.js'
+import type { RegisteredToolInfo, Tool } from './types.js'
 
 export interface ToolRegistration {
   readonly registrationId: string
@@ -11,14 +11,32 @@ export interface ToolSnapshot {
   readonly registrations: ReadonlyMap<string, ToolRegistration>
 }
 
+export interface ToolRegistrationInput {
+  readonly tool: Tool
+  readonly scope?: string
+}
+
 export class ToolRegistry {
   #records = new Map<string, ToolRegistration>()
+  #scopes = new Set<string>(['global'])
   #revision = 0
+
+  constructor(inputs: readonly ToolRegistrationInput[] = []) {
+    const next = new Map<string, ToolRegistration>()
+    for (const { tool, scope = 'global' } of inputs) {
+      this.#validate(tool, scope)
+      if (next.has(tool.name)) throw new ToolRegistrationError(`Tool already registered: ${tool.name}`)
+      next.set(tool.name, this.#record(tool, scope))
+      this.#scopes.add(scope)
+    }
+    this.#records = next
+  }
 
   register(tool: Tool, scope = 'global'): () => boolean {
     this.#validate(tool, scope)
     if (this.#records.has(tool.name)) throw new ToolRegistrationError(`Tool already registered: ${tool.name}`)
     const record = this.#record(tool, scope)
+    this.#scopes.add(scope)
     this.#records.set(tool.name, record); this.#revision++
     return () => {
       const current = this.#records.get(tool.name)
@@ -41,6 +59,7 @@ export class ToolRegistry {
   }
 
   replaceScope(scope: string, tools: readonly Tool[]): void {
+    this.#validateScope(scope)
     const names = new Set<string>()
     for (const tool of tools) {
       this.#validate(tool, scope)
@@ -51,7 +70,30 @@ export class ToolRegistry {
     }
     const next = new Map([...this.#records].filter(([, record]) => record.scope !== scope))
     for (const tool of tools) next.set(tool.name, this.#record(tool, scope))
+    this.#scopes.add(scope)
     this.#records = next; this.#revision++
+  }
+
+  list(scope?: string): readonly Readonly<RegisteredToolInfo>[] {
+    if (scope !== undefined) this.#validateScope(scope)
+    return Object.freeze([...this.#records.values()]
+      .filter((record) => scope === undefined || record.scope === scope)
+      .map(({ tool, scope: toolScope }) => Object.freeze({ name: tool.name, description: tool.description, scope: toolScope })))
+  }
+
+  listScopes(): readonly string[] {
+    return Object.freeze([...this.#scopes])
+  }
+
+  removeScope(scope: string): number {
+    this.#validateScope(scope)
+    if (!this.#scopes.has(scope)) return 0
+    const next = new Map([...this.#records].filter(([, record]) => record.scope !== scope))
+    const removed = this.#records.size - next.size
+    this.#records = next
+    this.#scopes.delete(scope)
+    this.#revision++
+    return removed
   }
 
   snapshot(): ToolSnapshot {
@@ -60,11 +102,14 @@ export class ToolRegistry {
   isCurrent(record: ToolRegistration): boolean {
     return this.#records.get(record.tool.name)?.registrationId === record.registrationId
   }
-  clear(): void { this.#records.clear(); this.#revision++ }
+  clear(): void { this.#records.clear(); this.#scopes.clear(); this.#revision++ }
   #record(tool: Tool, scope: string): ToolRegistration { return { tool, scope, registrationId: globalThis.crypto.randomUUID() } }
   #validate(tool: Tool, scope: string): void {
     if (!tool.name.trim() || !tool.description.trim() || !scope.trim() || typeof tool.execute !== 'function') {
       throw new ToolRegistrationError('Tool name, description, scope, schema, and execute are required')
     }
+  }
+  #validateScope(scope: string): void {
+    if (!scope.trim()) throw new ToolRegistrationError('Tool scope is required')
   }
 }

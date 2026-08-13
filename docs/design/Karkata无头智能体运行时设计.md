@@ -201,8 +201,14 @@ const agent = new Agent({
   systemPrompt: '你是业务操作助手。',
   maxSteps: 20,
   timeoutMs: 120_000,
+  tools: [
+    globalTool,
+    { tool: auditTool, scope: 'workflow-review' },
+  ],
 })
 ```
+
+`tools` 用于构造时批量装配固定能力。普通 Tool 默认属于 `global` scope；需要分组管理时使用 `{ tool, scope }`。scope 是任意非空分组键，Core 不解释其业务含义，不与前端路由绑定。初始化批次会先整体校验，任一无效项或重名都会使构造失败。
 
 建议的公开方法：
 
@@ -221,6 +227,9 @@ interface Agent {
   unregisterTool(name: string, options?: { scope?: string }): boolean
   replaceTool(tool: Tool, options?: { scope?: string }): void
   replaceToolScope(scope: string, tools: Tool[]): void
+  listTools(options?: { scope?: string }): readonly RegisteredToolInfo[]
+  listToolScopes(): readonly string[]
+  removeToolScope(scope: string): number
 }
 ```
 
@@ -421,18 +430,18 @@ sequenceDiagram
 
 ```ts
 agent.registerTool(globalTool)
-agent.registerTool(orderTool, { scope: 'route' })
+agent.registerTool(orderTool, { scope: 'order-workflow' })
 
 agent.unregisterTool('get_order')
-agent.replaceTool(updatedOrderTool, { scope: 'route' })
-agent.replaceToolScope('route', createToolsForRoute(route))
+agent.replaceTool(updatedOrderTool, { scope: 'order-workflow' })
+agent.replaceToolScope('order-workflow', createOrderWorkflowTools())
 ```
 
-路由切换示例：
+scope 是通用分组键，可以表示页面、模块、租户、插件、工作流阶段或其他宿主概念。路由切换只是其中一种示例：
 
 ```ts
 router.afterEach((route) => {
-  agent.replaceToolScope('route', createToolsForRoute(route))
+  agent.replaceToolScope('current-context', createToolsForRoute(route))
 })
 ```
 
@@ -442,6 +451,10 @@ router.afterEach((route) => {
 - `registerTool` 遇到重名时抛错，避免静默覆盖。
 - 覆盖必须显式使用 `replaceTool`。
 - `replaceToolScope` 原子替换一个作用域的全部工具。
+- `listTools` 返回当前工具的冻结信息快照，只包含名称、描述和 scope，不暴露执行函数、Schema 或注册版本。
+- `listToolScopes` 返回所有已创建的 scope，包括当前没有工具的 scope；`global` 在 Agent 构造时创建。
+- 注销最后一个工具或调用 `replaceToolScope(scope, [])` 只清空工具，不删除 scope。
+- `removeToolScope` 显式删除 scope 及其中全部工具，返回删除的工具数量；`global` 没有特殊保护。
 - Agent 在每次 LLM 调用前获取一次工具快照。
 - 已经开始执行的工具不因注册表更新被强制中断。
 - 每次注册都有唯一 `registrationId`，快照 Schema 和工具实现必须来自同一注册记录。
