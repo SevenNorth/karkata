@@ -39,11 +39,18 @@ const agent = createAgent({
       const response = await fetch(`/api/agent-instructions?module=${encodeURIComponent(moduleName)}`, { signal })
       return response.ok && tools.length > 0 ? response.text() : undefined
     },
+    contextBudget: {
+      maxTokens: 120_000,
+      estimateTokens: (request, { signal }) => estimateModelInputTokens(request, { signal }),
+    },
   },
 })
 
 const unsubscribe = agent.subscribe((state) => {
   console.log(state.status, state.activeTool)
+  if (state.contextUsage) {
+    console.log(`${state.contextUsage.usedTokens} / ${state.contextUsage.maxTokens}`)
+  }
 })
 
 console.log(agent.listToolScopes())
@@ -60,6 +67,8 @@ Every successful tool must explicitly return a model-visible `ToolOutput`: a fin
 Karkata always sends a built-in runtime system prompt. `systemPrompt` adds static application instructions, while `resolveInstructions` can synchronously or asynchronously provide trusted instructions before each model step. These internal instructions are sent only to the model and are not included in `agent.state.messages` or conversation history.
 
 Model failures are exposed as structured `AgentError` values with a stable `code`, safe `message`, `retryable` flag, and optional HTTP `statusCode`. OpenAI-compatible calls distinguish network, authentication, rate-limit, invalid-response, and provider failures; only network failures, HTTP 429, and HTTP 5xx are retried. Provider response bodies, request bodies, authorization data, and original error causes are not copied into `AgentResult` or `AgentState`. Custom adapters can throw the Core `ModelError` class to participate in the same classification contract; unclassified errors remain `MODEL_ERROR` and are not retryable.
+
+Optional `contextBudget` protects each model call before it is sent. The estimator receives the complete frozen request, including system instructions, committed history, current run messages, and tool schemas. `state.contextUsage` exposes only `{ maxTokens, usedTokens }` for UI rendering; `usedTokens` is the latest request estimate, not cumulative API usage. Estimates equal to the limit are allowed, while larger requests fail with `CONTEXT_LIMIT_EXCEEDED` without calling the model or committing the failed run. Karkata does not choose a tokenizer or compress history automatically; applications should provide an estimator appropriate for their model.
 
 `createAgent()` is the concise OpenAI-compatible entry point. It creates an `OpenAICompatibleAdapter` internally while keeping provider settings separate from Runtime settings under `agent`. Advanced integrations can continue to use `new Agent({ llm: new OpenAICompatibleAdapter(...) })`, and other model protocols can implement the Core `LLMAdapter` contract without changing the Runtime.
 

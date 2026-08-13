@@ -1,0 +1,10 @@
+{
+  "id": "context-budget-guard",
+  "title": "增加上下文预算与占用状态",
+  "type": "feature",
+  "status": "archived",
+  "branch": "main",
+  "createdAt": "2026-08-13T08:56:26.900Z",
+  "updatedAt": "2026-08-13T09:18:04.462Z",
+  "archivedAt": "2026-08-13T09:18:04.462Z"
+}

@@ -127,6 +127,230 @@ describe('Agent', () => {
     expect(() => new Agent({ llm: new ScriptedLLM([]), maxInstructionsLength: Number.POSITIVE_INFINITY })).toThrow('maxInstructionsLength must be a non-negative finite integer')
   })
 
+  it('exposes only the configured maximum and current estimated context usage', () => {
+    const agent = new Agent({
+      llm: new ScriptedLLM([]),
+      contextBudget: { maxTokens: 100, estimateTokens: () => 0 },
+    })
+
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 100, usedTokens: 0 })
+    expect(Object.keys(agent.state.contextUsage!)).toEqual(['maxTokens', 'usedTokens'])
+    expect(new Agent({ llm: new ScriptedLLM([]) }).state.contextUsage).toBeUndefined()
+  })
+
+  it('does not freeze adapter requests when context budgeting is disabled', async () => {
+    const llm: LLMAdapter = {
+      invoke: async (request) => {
+        expect(Object.isFrozen(request)).toBe(false)
+        expect(Object.isFrozen(request.messages)).toBe(false)
+        expect(Object.isFrozen(request.tools)).toBe(false)
+        return message('done')
+      },
+    }
+
+    await new Agent({ llm }).send('unchanged')
+  })
+
+  it('estimates the complete model request and allows usage equal to the maximum', async () => {
+    const llm = new ScriptedLLM([message('done')])
+    const estimateTokens = vi.fn(() => 10)
+    const agent = new Agent({
+      llm,
+      systemPrompt: 'Application rules',
+      tools: [{ name: 'lookup', description: 'Lookup', inputSchema: z.object({ id: z.string() }), execute: () => 'found' }],
+      contextBudget: { maxTokens: 10, estimateTokens },
+    })
+
+    await expect(agent.send('find')).resolves.toMatchObject({ status: 'completed', content: 'done' })
+
+    expect(estimateTokens).toHaveBeenCalledOnce()
+    const [estimatedRequest, context] = estimateTokens.mock.calls[0]!
+    expect(estimatedRequest.messages).toEqual(llm.requests[0]!.messages)
+    expect(estimatedRequest.tools).toEqual(llm.requests[0]!.tools)
+    expect(estimatedRequest.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('Application rules') })
+    expect(context).toMatchObject({ runId: expect.any(String), step: 1, signal: expect.any(AbortSignal) })
+    expect(Object.isFrozen(estimatedRequest)).toBe(true)
+    expect(Object.isFrozen(estimatedRequest.messages)).toBe(true)
+    expect(Object.isFrozen(estimatedRequest.messages[0])).toBe(true)
+    expect(Object.isFrozen(estimatedRequest.tools)).toBe(true)
+    expect(Object.isFrozen(estimatedRequest.tools[0])).toBe(true)
+    expect(Object.isFrozen(context)).toBe(true)
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 10, usedTokens: 10 })
+  })
+
+  it('preserves the latest estimate when the model call fails', async () => {
+    const agent = new Agent({
+      llm: { invoke: () => Promise.reject(new Error('model failed')) },
+      contextBudget: { maxTokens: 20, estimateTokens: () => 6 },
+    })
+
+    await expect(agent.send('fail')).resolves.toMatchObject({ status: 'error', error: { code: 'MODEL_ERROR' } })
+
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 6 })
+    expect(agent.state.messages).toEqual([])
+  })
+
+  it('blocks an over-budget request without calling the model or committing the run', async () => {
+    const llm = new ScriptedLLM([])
+    const agent = new Agent({
+      llm,
+      contextBudget: { maxTokens: 10, estimateTokens: () => 11 },
+    })
+
+    await expect(agent.send('too large')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'CONTEXT_LIMIT_EXCEEDED', retryable: false },
+    })
+    expect(llm.requests).toHaveLength(0)
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 10, usedTokens: 11 })
+    expect(agent.state.messages).toEqual([])
+  })
+
+  it('re-estimates context after tool results expand a multi-step run', async () => {
+    const llm = new ScriptedLLM([toolCall('call-1', 'lookup', {}), message('done')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(8)
+      .mockReturnValueOnce(14)
+    const agent = new Agent({
+      llm,
+      tools: [{ name: 'lookup', description: 'Lookup', inputSchema: z.object({}), execute: () => ({ result: 'expanded context' }) }],
+      contextBudget: { maxTokens: 20, estimateTokens },
+    })
+
+    await agent.send('find')
+
+    expect(estimateTokens).toHaveBeenCalledTimes(2)
+    expect(estimateTokens.mock.calls[1]![0].messages).toEqual(llm.requests[1]!.messages)
+    expect(estimateTokens.mock.calls[1]![0].messages.at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('expanded context') })
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 14 })
+  })
+
+  it('rejects invalid context budget configuration', () => {
+    const llm = new ScriptedLLM([])
+
+    expect(() => new Agent({ llm, contextBudget: { maxTokens: 0, estimateTokens: () => 0 } })).toThrow('maxTokens must be a positive finite integer')
+    expect(() => new Agent({ llm, contextBudget: { maxTokens: 1.5, estimateTokens: () => 0 } })).toThrow('maxTokens must be a positive finite integer')
+    expect(() => new Agent({ llm, contextBudget: { maxTokens: 10, estimateTokens: undefined as never } })).toThrow('estimateTokens must be a function')
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5])('reports an invalid token estimate %s without calling the model', async (estimate) => {
+    const llm = new ScriptedLLM([])
+    const agent = new Agent({ llm, contextBudget: { maxTokens: 10, estimateTokens: () => estimate } })
+
+    await expect(agent.send('estimate')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'CONTEXT_ESTIMATION_ERROR', message: 'Context token estimation failed', retryable: false },
+    })
+    expect(llm.requests).toHaveLength(0)
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 10, usedTokens: 0 })
+  })
+
+  it('does not expose an estimator failure or call the model', async () => {
+    const llm = new ScriptedLLM([])
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 10,
+        estimateTokens: () => { throw new Error('Authorization: Bearer estimator-secret') },
+      },
+    })
+
+    await expect(agent.send('estimate')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'CONTEXT_ESTIMATION_ERROR', message: 'Context token estimation failed', retryable: false },
+    })
+    expect(llm.requests).toHaveLength(0)
+    expect(JSON.stringify(agent.state)).not.toContain('estimator-secret')
+  })
+
+  it('settles when a context estimator ignores manual cancellation', async () => {
+    const llm = new ScriptedLLM([])
+    const agent = new Agent({
+      llm,
+      contextBudget: { maxTokens: 10, estimateTokens: () => new Promise(() => undefined) },
+    })
+    const run = agent.send('wait')
+    await Promise.resolve()
+
+    agent.abort()
+
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    expect(llm.requests).toHaveLength(0)
+  })
+
+  it('times out when a context estimator ignores its signal', async () => {
+    vi.useFakeTimers()
+    const llm = new ScriptedLLM([])
+    const agent = new Agent({
+      llm,
+      timeoutMs: 50,
+      contextBudget: { maxTokens: 10, estimateTokens: () => new Promise(() => undefined) },
+    })
+    const run = agent.send('wait')
+
+    await vi.advanceTimersByTimeAsync(50)
+
+    await expect(run).resolves.toMatchObject({ status: 'error', error: { code: 'TIMEOUT' } })
+    expect(llm.requests).toHaveLength(0)
+    vi.useRealTimers()
+  })
+
+  it('ignores an estimate that arrives after cancellation', async () => {
+    let resolveEstimate!: (tokens: number) => void
+    const llm = new ScriptedLLM([])
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 10,
+        estimateTokens: () => new Promise((resolve) => { resolveEstimate = resolve }),
+      },
+    })
+    const run = agent.send('cancel')
+    await Promise.resolve()
+
+    agent.abort()
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    resolveEstimate(9)
+    await Promise.resolve()
+
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 10, usedTokens: 0 })
+    expect(llm.requests).toHaveLength(0)
+  })
+
+  it('does not accumulate provider usage and resets context usage when history is cleared', async () => {
+    const llm = new ScriptedLLM([
+      { message: { role: 'assistant', content: 'first' }, usage: { inputTokens: 999, totalTokens: 1_000 } },
+      message('second'),
+    ])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(7)
+      .mockReturnValueOnce(9)
+    const agent = new Agent({ llm, contextBudget: { maxTokens: 20, estimateTokens } })
+
+    await agent.send('one')
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 7 })
+    await agent.send('two')
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 9 })
+
+    agent.clearHistory()
+
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 0 })
+  })
+
+  it('publishes detached context usage snapshots', async () => {
+    const agent = new Agent({
+      llm: new ScriptedLLM([message('done')]),
+      contextBudget: { maxTokens: 20, estimateTokens: () => 5 },
+    })
+    const before = agent.state.contextUsage!
+
+    await agent.send('update')
+
+    expect(before).toEqual({ maxTokens: 20, usedTokens: 0 })
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 5 })
+    expect(agent.state.contextUsage).not.toBe(before)
+  })
+
   it('executes a global tool supplied in the constructor', async () => {
     const llm = new ScriptedLLM([toolCall('call-1', 'sum', { a: 2, b: 3 }), message('5')])
     const sum: Tool<{ a: number; b: number }, number> = { name: 'sum', description: 'Add numbers', inputSchema: z.object({ a: z.number(), b: z.number() }), execute: ({ a, b }) => a + b }

@@ -204,6 +204,10 @@ const agent = createAgent({
       return loadModuleInstructions({ tools, signal })
     },
     maxInstructionsLength: 20_000,
+    contextBudget: {
+      maxTokens: 120_000,
+      estimateTokens: (request, { signal }) => estimateModelInputTokens(request, { signal }),
+    },
     maxSteps: 20,
     timeoutMs: 120_000,
     tools: [
@@ -221,6 +225,8 @@ const agent = createAgent({
 Core 始终提供不可覆盖的通用默认提示词。`systemPrompt` 是构造时确定的静态应用增强；`resolveInstructions` 是每次调用模型前执行的同步或异步指导函数。Resolver 只返回一段可信字符串，不需要返回 scope 结构；宿主可从传入的当前工具信息自行判断页面、模块或业务上下文。
 
 默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此未来 UI 不会把内部提示词作为对话消息回显。
+
+`contextBudget` 是可选的调用前输入预算。`maxTokens` 由使用方根据模型能力和输出预留确定；`estimateTokens` 接收即将发送给 Adapter 的完整冻结 `LLMRequest` 以及当前 `runId`、`step` 和 `AbortSignal`。Core 不绑定 tokenizer，也不通过 Provider `/models` 猜测上限。
 
 建议的公开方法：
 
@@ -356,9 +362,15 @@ interface AgentState {
   }
   result?: AgentResult
   error?: AgentError
+  contextUsage?: {
+    maxTokens: number
+    usedTokens: number
+  }
   updatedAt: number
 }
 ```
+
+`contextUsage` 只在配置预算时存在，供 UI 直接呈现“当前预计占用 / 最大输入预算”。`usedTokens` 是最近一次模型调用前对完整请求的估算，不是 Provider 返回的累计 usage 或计费统计。构造后初始值为 `0`；每一步预算检查后更新；成功、模型失败或超限后保留最近值；`clearHistory()` 重置为 `0`。状态继续以隔离快照发布。
 
 `waiting` 暂不作为首版状态。等待 HTTP、工具或模型都属于 `running`，具体阶段通过 `activeTool` 或后续的活动事件表达。只有引入“等待用户回答”协议后，才需要增加 `waiting_for_input`。
 
@@ -406,13 +418,18 @@ const unsubscribe = agent.subscribe((state) => {
 | `timeoutMs` | 限制整次 `send()` 运行时间 | `120000` |
 | `maxRetries` | 限制单次模型调用重试 | `2` |
 | `maxToolResultLength` | 防止工具结果无限扩大上下文 | 按字符或 token 限制 |
+| `contextBudget.maxTokens` | 限制完整模型请求的预计输入 token | 由使用方按模型配置 |
 
 ### 9.1 上下文增长
 
-工具结果和步骤历史会让上下文持续增长。建议分阶段实现：
+工具结果和步骤历史会让上下文持续增长。每次模型调用前，Runtime 对组装完成的同一冻结请求执行估算；估算结果为非负有限整数且不大于 `maxTokens` 时才调用 Adapter。相等值允许调用，超过上限返回不可重试的 `CONTEXT_LIMIT_EXCEEDED`。估算器异常或非法返回值产生安全的 `CONTEXT_ESTIMATION_ERROR`，不调用模型；两类失败都遵守运行消息原子回滚。
 
-1. 首版：限制步数和单个工具结果长度，在接近模型上下文上限时返回明确错误。
-2. 后续：引入历史裁剪和摘要策略，但将策略定义为可替换接口。
+响应中的 `TokenUsage` 是事后 Provider 数据，不写入 `contextUsage`，也不在 Runtime 中累计。估算器可同步或异步执行，并接收当前运行的 `AbortSignal`；即使它忽略信号，取消 Promise 竞争和 runId 门禁仍保证及时收敛与迟到结果隔离。
+
+上下文能力分阶段实现：
+
+1. 当前：限制步数和单个工具结果长度，并通过使用方估算器提供完整请求预算与 UI 占用状态。
+2. 后续：在同一请求组装和预算检查点之前引入历史裁剪或摘要，但单独定义策略、回滚与取消契约。
 3. 再后续：增加 checkpoint 和外部存储，实现跨刷新恢复。
 
 ### 9.2 长时间工具
@@ -640,6 +657,7 @@ type AgentErrorCode =
   | 'TIMEOUT'
   | 'ABORTED'
   | 'CONTEXT_LIMIT_EXCEEDED'
+  | 'CONTEXT_ESTIMATION_ERROR'
   | 'INTERNAL_ERROR'
 ```
 
@@ -680,7 +698,7 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 
 - 工具作用域和 `replaceToolScope()`。
 - 可选 `createUnsafeJavaScriptTool()`。
-- 更完整的 token 上下文预算。
+- 完整请求 token 预算、超限保护与最小 UI 占用状态。
 - 模型错误分类、重试元数据与安全 HTTP 调试信息。
 
 ### 阶段三：生态能力

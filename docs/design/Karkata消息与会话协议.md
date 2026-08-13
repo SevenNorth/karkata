@@ -195,6 +195,8 @@ await agent.send('开始处理另一个客户')
 
 状态快照在运行期间可以展示 `committedHistory + runMessages`，但后续新运行只使用 `committedHistory`。
 
+若启用上下文预算，`CONTEXT_LIMIT_EXCEEDED` 和 `CONTEXT_ESTIMATION_ERROR` 与其他运行错误遵循相同原子提交规则：当前 `runMessages` 被丢弃，之前的 `committedHistory` 保留。`AgentState.contextUsage.usedTokens` 是独立的 UI 预算投影，可以保留最近一次有效预算检查值，不属于会话消息，也不会进入下一次模型请求。`clearHistory()` 清空消息并将其重置为 `0`。
+
 这个设计避免将不完整的 assistant/tool 序列传给下一次 LLM 调用。它不代表工具副作用可以回滚；工具已经完成的外部操作仍然可能存在。
 
 ## 7. 历史与状态投影

@@ -3,9 +3,13 @@ import { AgentBusyError, AgentDisposedError, errorMessage, ModelError } from './
 import { assembleSystemMessage, createInstructionResolverContext, PromptAssemblyError } from './prompt.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
 import { serializeToolOutput } from './toolOutput.js'
-import type { AgentConfig, AgentError, AgentMessage, AgentResult, AgentState, AgentStateListener, AssistantMessage, InitialTool, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
+import type { AgentConfig, AgentError, AgentMessage, AgentResult, AgentState, AgentStateListener, AssistantMessage, ContextEstimationContext, InitialTool, LLMRequest, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
 
 interface Run { runId: string; controller: AbortController; termination: 'manual' | 'timeout' | 'dispose' | undefined; timer: ReturnType<typeof setTimeout>; step: number }
+
+class ContextEstimationError extends Error {
+  override readonly name = 'ContextEstimationError'
+}
 
 export class Agent {
   readonly #config: Required<Pick<AgentConfig, 'maxSteps' | 'timeoutMs' | 'maxToolResultLength' | 'maxInstructionsLength'>> & AgentConfig
@@ -22,9 +26,20 @@ export class Agent {
     if (config.maxInstructionsLength !== undefined && (!Number.isFinite(config.maxInstructionsLength) || !Number.isInteger(config.maxInstructionsLength) || config.maxInstructionsLength < 0)) {
       throw new TypeError('maxInstructionsLength must be a non-negative finite integer')
     }
+    if (config.contextBudget !== undefined) {
+      if (!Number.isFinite(config.contextBudget.maxTokens) || !Number.isInteger(config.contextBudget.maxTokens) || config.contextBudget.maxTokens <= 0) {
+        throw new TypeError('contextBudget.maxTokens must be a positive finite integer')
+      }
+      if (typeof config.contextBudget.estimateTokens !== 'function') {
+        throw new TypeError('contextBudget.estimateTokens must be a function')
+      }
+    }
     this.#config = { ...runtimeConfig, maxSteps: config.maxSteps ?? 20, timeoutMs: config.timeoutMs ?? 120_000, maxToolResultLength: config.maxToolResultLength ?? 20_000, maxInstructionsLength: config.maxInstructionsLength ?? 20_000 }
     this.#registry = new ToolRegistry(tools.map((initial) => this.#normalizeInitialTool(initial)))
-    this.#commit({ messages: this.#history })
+    this.#commit({
+      messages: this.#history,
+      contextUsage: config.contextBudget ? { maxTokens: config.contextBudget.maxTokens, usedTokens: 0 } : undefined,
+    })
   }
   get state(): Readonly<AgentState> { return this.#state }
   subscribe(listener: AgentStateListener): () => void {
@@ -41,7 +56,18 @@ export class Agent {
   clearHistory(): void {
     this.#assertUsable(); if (this.#run) throw new AgentBusyError('Cannot clear history while running')
     this.#history = []
-    this.#commit({ status: 'idle', runId: undefined, step: 0, messages: this.#history, result: undefined, error: undefined, activeTool: undefined })
+    this.#commit({
+      status: 'idle',
+      runId: undefined,
+      step: 0,
+      messages: this.#history,
+      result: undefined,
+      error: undefined,
+      activeTool: undefined,
+      contextUsage: this.#config.contextBudget
+        ? { maxTokens: this.#config.contextBudget.maxTokens, usedTokens: 0 }
+        : undefined,
+    })
   }
   abort(): void { if (this.#run) this.#terminate(this.#run, 'manual') }
 
@@ -66,7 +92,16 @@ export class Agent {
           context: createInstructionResolverContext(run.runId, run.step, toolInfo, run.controller.signal),
         })
         this.#ensureCurrent(run)
-        const response = await awaitWithAbort(Promise.resolve(this.#config.llm.invoke({ messages: [systemMessage, ...this.#history, ...this.#runMessages], tools }, { signal: run.controller.signal })), run.controller.signal)
+        let request: LLMRequest = { messages: [systemMessage, ...this.#history, ...this.#runMessages], tools }
+        if (this.#config.contextBudget) {
+          request = Object.freeze({
+            messages: deepFreeze(structuredClone(request.messages)),
+            tools: Object.freeze(request.tools.map((tool) => Object.freeze(tool))),
+          })
+          const budgetError = await this.#checkContextBudget(run, request)
+          if (budgetError) return this.#fail(run, budgetError)
+        }
+        const response = await awaitWithAbort(Promise.resolve(this.#config.llm.invoke(request, { signal: run.controller.signal })), run.controller.signal)
         this.#ensureCurrent(run)
         this.#validateAssistant(response.message)
         this.#runMessages.push(response.message)
@@ -93,6 +128,9 @@ export class Agent {
         this.#finish(run, result); return result
       }
       if (error instanceof PromptAssemblyError) return this.#fail(run, { code: error.code, message: error.message, retryable: false })
+      if (error instanceof ContextEstimationError) {
+        return this.#fail(run, { code: 'CONTEXT_ESTIMATION_ERROR', message: 'Context token estimation failed', retryable: false })
+      }
       if (error instanceof ModelError) {
         return this.#fail(run, {
           code: error.code,
@@ -115,6 +153,38 @@ export class Agent {
       this.#listeners.clear()
     })()
     return this.#disposePromise
+  }
+
+  async #checkContextBudget(run: Run, request: LLMRequest): Promise<AgentError | undefined> {
+    const budget = this.#config.contextBudget
+    if (!budget) return undefined
+    let usedTokens: unknown
+    try {
+      const context = Object.freeze({
+        runId: run.runId,
+        step: run.step,
+        signal: run.controller.signal,
+      }) satisfies ContextEstimationContext
+      usedTokens = await awaitWithAbort(
+        Promise.resolve().then(() => budget.estimateTokens(request, context)),
+        run.controller.signal,
+      )
+    } catch (error) {
+      if (run.controller.signal.aborted) throw error
+      throw new ContextEstimationError('Context token estimation failed')
+    }
+    this.#ensureCurrent(run)
+    if (!Number.isFinite(usedTokens) || !Number.isInteger(usedTokens) || (usedTokens as number) < 0) {
+      throw new ContextEstimationError('Context token estimator must return a non-negative finite integer')
+    }
+    const tokens = usedTokens as number
+    this.#commit({ contextUsage: { maxTokens: budget.maxTokens, usedTokens: tokens } })
+    if (tokens <= budget.maxTokens) return undefined
+    return {
+      code: 'CONTEXT_LIMIT_EXCEEDED',
+      message: `Context usage ${tokens} exceeds the maximum of ${budget.maxTokens} tokens`,
+      retryable: false,
+    }
   }
 
   async #executeTool(run: Run, registration: ToolRegistration, callId: string, input: unknown): Promise<ToolResultMessage> {
@@ -150,4 +220,12 @@ export class Agent {
     return 'tool' in initial ? { tool: initial.tool, scope: initial.scope } : { tool: initial }
   }
   #assertUsable(): void { if (this.#state.status === 'disposed' || this.#disposePromise) throw new AgentDisposedError('Agent has been disposed') }
+}
+
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value) || seen.has(value)) return value
+  seen.add(value)
+  const object = value as Record<PropertyKey, unknown>
+  for (const key of Reflect.ownKeys(object)) deepFreeze(object[key], seen)
+  try { return Object.freeze(value) } catch { return value }
 }

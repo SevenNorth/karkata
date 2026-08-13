@@ -23,17 +23,35 @@ export interface TokenUsage {
   totalTokens?: number | undefined
 }
 export interface LLMToolDefinition {
-  name: string
-  description: string
-  inputSchema: z.ZodType
+  readonly name: string
+  readonly description: string
+  readonly inputSchema: z.ZodType
 }
 export interface LLMRequest {
-  messages: readonly AgentMessage[]
-  tools: readonly LLMToolDefinition[]
+  readonly messages: readonly AgentMessage[]
+  readonly tools: readonly LLMToolDefinition[]
 }
 export interface LLMResponse { message: AssistantMessage; usage?: TokenUsage }
 export interface LLMAdapter {
   invoke(request: LLMRequest, options: { signal: AbortSignal }): Promise<LLMResponse>
+}
+
+export interface ContextUsage {
+  readonly maxTokens: number
+  readonly usedTokens: number
+}
+export interface ContextEstimationContext {
+  readonly runId: string
+  readonly step: number
+  readonly signal: AbortSignal
+}
+export type ContextTokenEstimator = (
+  request: Readonly<LLMRequest>,
+  context: ContextEstimationContext,
+) => number | Promise<number>
+export interface ContextBudgetConfig {
+  readonly maxTokens: number
+  readonly estimateTokens: ContextTokenEstimator
 }
 
 export interface ToolContext { signal: AbortSignal; runId: string; step: number }
@@ -95,7 +113,7 @@ export type AgentErrorCode =
   | ModelErrorCode | 'MODEL_ERROR' | 'TOOL_NOT_FOUND' | 'TOOL_CHANGED' | 'TOOL_INVALID_INPUT'
   | 'TOOL_EXECUTION_ERROR' | 'MAX_STEPS_EXCEEDED' | 'TIMEOUT' | 'ABORTED'
   | 'TOOL_RESULT_TOO_LARGE' | 'INSTRUCTION_RESOLUTION_ERROR' | 'INSTRUCTIONS_TOO_LARGE'
-  | 'INTERNAL_ERROR'
+  | 'CONTEXT_LIMIT_EXCEEDED' | 'CONTEXT_ESTIMATION_ERROR' | 'INTERNAL_ERROR'
 
 export interface AgentError {
   code: AgentErrorCode
@@ -116,6 +134,7 @@ export interface AgentState {
   activeTool?: { name: string; input: unknown } | undefined
   result?: AgentResult | undefined
   error?: AgentError | undefined
+  contextUsage?: Readonly<ContextUsage> | undefined
   updatedAt: number
 }
 export type AgentStateListener = (state: Readonly<AgentState>) => void
@@ -126,6 +145,7 @@ export interface AgentConfig {
   systemPrompt?: string
   resolveInstructions?: InstructionResolver
   maxInstructionsLength?: number
+  contextBudget?: ContextBudgetConfig
   maxSteps?: number
   timeoutMs?: number
   maxToolResultLength?: number
