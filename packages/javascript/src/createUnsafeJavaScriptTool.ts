@@ -1,13 +1,13 @@
 import { defineTool, type Tool } from '@karkata/core'
 import { z } from 'zod'
 
-export interface JavaScriptToolOptions {
+export interface UnsafeJavaScriptToolOptions {
   globals?: Readonly<Record<string, unknown>>
   name?: string
   description?: string
 }
 
-export function createJavaScriptTool(options: JavaScriptToolOptions = {}): Tool<{ script: string }, unknown> {
+export function createUnsafeJavaScriptTool(options: UnsafeJavaScriptToolOptions = {}): Tool<{ script: string }, unknown> {
   const globals = Object.freeze({ ...(options.globals ?? {}) })
   const names = Object.keys(globals)
   const values = Object.values(globals)
@@ -25,4 +25,3 @@ export function createJavaScriptTool(options: JavaScriptToolOptions = {}): Tool<
     },
   })
 }
-

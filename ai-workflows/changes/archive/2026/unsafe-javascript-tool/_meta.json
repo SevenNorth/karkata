@@ -1,0 +1,10 @@
+{
+  "id": "unsafe-javascript-tool",
+  "title": "明确非沙箱 JavaScript 工具 API",
+  "type": "feature",
+  "status": "archived",
+  "branch": "main",
+  "createdAt": "2026-08-13T02:00:18.985Z",
+  "updatedAt": "2026-08-13T02:05:46.689Z",
+  "archivedAt": "2026-08-13T02:05:46.689Z"
+}

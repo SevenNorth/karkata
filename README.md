@@ -8,7 +8,7 @@ Karkata is a lightweight, headless agent runtime for TypeScript. It handles mode
 | --- | --- |
 | `@karkata/core` | Agent runtime, normalized messages, state, cancellation, and tool registry |
 | `@karkata/openai` | OpenAI-compatible chat completions adapter |
-| `@karkata/javascript` | Optional, explicitly registered JavaScript execution tool |
+| `@karkata/javascript` | Optional, explicitly registered unsafe JavaScript execution tool; not a sandbox |
 
 ## Example
 

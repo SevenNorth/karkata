@@ -1,2 +1,2 @@
-export { createJavaScriptTool } from './createJavaScriptTool.js'
-export type { JavaScriptToolOptions } from './createJavaScriptTool.js'
+export { createUnsafeJavaScriptTool } from './createUnsafeJavaScriptTool.js'
+export type { UnsafeJavaScriptToolOptions } from './createUnsafeJavaScriptTool.js'

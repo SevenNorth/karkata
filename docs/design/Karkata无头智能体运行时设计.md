@@ -113,7 +113,7 @@ src/
 │   ├── ToolRegistry.ts      # 工具注册、替换、作用域
 │   └── types.ts             # Tool 和 ToolContext 契约
 ├── javascript/
-│   └── createJavaScriptTool.ts
+│   └── createUnsafeJavaScriptTool.ts
 │                              # 可选、显式创建的 JavaScript 工具
 ├── types.ts                 # 公开配置和返回类型
 └── index.ts                 # 统一对外导出
@@ -173,7 +173,7 @@ export interface LLMResponse {
 ```ts
 export { Agent } from './agent/Agent'
 export { OpenAIAdapter } from './llm/OpenAIAdapter'
-export { createJavaScriptTool } from './javascript/createJavaScriptTool'
+export { createUnsafeJavaScriptTool } from './javascript/createUnsafeJavaScriptTool'
 export { defineTool } from './tools/types'
 
 export type {
@@ -476,10 +476,10 @@ sequenceDiagram
 
 ## 12. JavaScript 执行工具
 
-JavaScript 执行应作为一个可选工具工厂提供，而不是 Agent Core 的特权能力。使用方必须显式创建并注册：
+JavaScript 执行应作为一个明确标注为非安全的可选工具工厂提供，而不是 Agent Core 的特权能力。使用方必须显式创建并注册：
 
 ```ts
-const javascriptTool = createJavaScriptTool({
+const javascriptTool = createUnsafeJavaScriptTool({
   globals: {
     app: applicationApi,
   },
@@ -489,6 +489,8 @@ agent.registerTool(javascriptTool)
 ```
 
 需要明确：在浏览器主页面中使用 `eval` 或 `Function` 不是安全沙箱。它可以访问同一 JavaScript Realm 内的权限，并产生不可预测的副作用。
+
+包只公开 `createUnsafeJavaScriptTool()`，不提供名称较弱的兼容别名。该命名是安全提示，不构成隔离保证；LLM 生成的脚本仍应按不可信代码处理，除非宿主已经通过其他机制建立可信边界。
 
 首版建议：
 
@@ -623,7 +625,7 @@ type AgentErrorCode =
 ### 阶段二：动态能力
 
 - 工具作用域和 `replaceToolScope()`。
-- 可选 `createJavaScriptTool()`。
+- 可选 `createUnsafeJavaScriptTool()`。
 - 更完整的 token 上下文预算。
 - 更完整的错误分类与调试信息。
 

@@ -10,7 +10,7 @@ Karkata 是通用 Headless Agent Runtime：
 
 - `@karkata/core` 只负责规范化消息、会话、Agent 生命周期、状态、取消和工具注册，不依赖 DOM、UI 框架、模型厂商或 Node 专属模块。
 - `@karkata/openai` 只负责 OpenAI 兼容协议的请求与响应归一化。
-- `@karkata/javascript` 是显式注册的可选工具，不是安全沙箱，不得由 Core 自动启用。
+- `@karkata/javascript` 是在宿主当前 Realm 执行代码的显式注册可选工具，只公开 `createUnsafeJavaScriptTool()`；它不是安全沙箱，不得由 Core 自动启用，也不得用于不可信代码。
 - DOM、HTTP、数据库和业务动作由使用方注册工具提供，不加入 Core 内置能力。
 
 ## 流程选择
@@ -117,7 +117,7 @@ npm pack --workspaces --dry-run
 - 不提交 `node_modules`、`dist`、`coverage`、`*.tsbuildinfo`、密钥或调试残留。
 - lockfile 只通过 npm 命令修改。
 - 不覆盖用户已有改动，不主动创建 commit。
-- 提交使用 Conventional Commits。
+- 提交使用 Conventional Commits，冒号后的主题和正文使用中文。
 
 ## 中断恢复
 
