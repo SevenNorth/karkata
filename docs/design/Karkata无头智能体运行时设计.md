@@ -107,7 +107,7 @@ src/
 │   └── errors.ts            # Agent 领域错误
 ├── llm/
 │   ├── types.ts             # LLMAdapter 契约
-│   ├── OpenAIAdapter.ts     # OpenAI 兼容实现
+│   ├── OpenAICompatibleAdapter.ts # OpenAI 兼容实现
 │   └── schema.ts            # Tool Schema 转换与校验
 ├── tools/
 │   ├── ToolRegistry.ts      # 工具注册、替换、作用域
@@ -172,7 +172,7 @@ export interface LLMResponse {
 
 ```ts
 export { Agent } from './agent/Agent'
-export { OpenAIAdapter } from './llm/OpenAIAdapter'
+export { OpenAICompatibleAdapter } from '@karkata/openai-compatible'
 export { createUnsafeJavaScriptTool } from './javascript/createUnsafeJavaScriptTool'
 export { defineTool } from './tools/types'
 
@@ -192,25 +192,29 @@ export type {
 ### 6.1 Agent 实例
 
 ```ts
-const agent = new Agent({
-  llm: new OpenAIAdapter({
-    model: 'qwen3.5-plus',
-    baseURL: 'https://example.com/v1',
-    apiKey: '...',
-  }),
-  systemPrompt: '你是业务操作助手。',
-  resolveInstructions: async ({ tools, signal }) => {
-    return loadModuleInstructions({ tools, signal })
+import { createAgent } from '@karkata/openai-compatible'
+
+const agent = createAgent({
+  model: 'qwen3.5-plus',
+  baseURL: 'https://example.com/v1',
+  apiKey: '...',
+  agent: {
+    systemPrompt: '你是业务操作助手。',
+    resolveInstructions: async ({ tools, signal }) => {
+      return loadModuleInstructions({ tools, signal })
+    },
+    maxInstructionsLength: 20_000,
+    maxSteps: 20,
+    timeoutMs: 120_000,
+    tools: [
+      globalTool,
+      { tool: auditTool, scope: 'workflow-review' },
+    ],
   },
-  maxInstructionsLength: 20_000,
-  maxSteps: 20,
-  timeoutMs: 120_000,
-  tools: [
-    globalTool,
-    { tool: auditTool, scope: 'workflow-review' },
-  ],
 })
 ```
+
+`@karkata/openai-compatible` 的 `createAgent()` 是 OpenAI-compatible 场景的便捷入口：Provider 配置位于顶层，Runtime 配置位于 `agent`。工厂只组合 `OpenAICompatibleAdapter` 与标准 Core `Agent`。Core 仍只依赖 `LLMAdapter` 契约，不认识默认 Provider；其他协议可实现独立 Adapter，高级使用方也可继续显式调用 `new Agent({ llm: new OpenAICompatibleAdapter(...) })`。
 
 `tools` 用于构造时批量装配固定能力。普通 Tool 默认属于 `global` scope；需要分组管理时使用 `{ tool, scope }`。scope 是任意非空分组键，Core 不解释其业务含义，不与前端路由绑定。初始化批次会先整体校验，任一无效项或重名都会使构造失败。
 
@@ -560,11 +564,12 @@ agent.respond(request.id, answer)
 ## 14. 完整使用示例
 
 ```ts
-import { Agent, OpenAIAdapter, defineTool } from 'karkata'
+import { Agent, defineTool } from '@karkata/core'
+import { OpenAICompatibleAdapter } from '@karkata/openai-compatible'
 import { z } from 'zod'
 
 const agent = new Agent({
-  llm: new OpenAIAdapter({
+  llm: new OpenAICompatibleAdapter({
     model: 'qwen3.5-plus',
     baseURL: 'https://example.com/v1',
     apiKey: '...',
@@ -632,7 +637,7 @@ type AgentErrorCode =
 
 ### 阶段一：最小运行时
 
-- `LLMAdapter` 契约和 `OpenAIAdapter`。
+- `LLMAdapter` 契约和 `OpenAICompatibleAdapter`。
 - `Tool`、`defineTool` 和 `ToolRegistry`。
 - `Agent.send()` 的文本 / Tool Call 循环。
 - `maxSteps`、`timeoutMs` 和 `abort()`。

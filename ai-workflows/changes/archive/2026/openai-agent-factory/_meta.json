@@ -1,0 +1,10 @@
+{
+  "id": "openai-agent-factory",
+  "title": "增加 OpenAI Agent 便捷工厂",
+  "type": "feature",
+  "status": "archived",
+  "branch": "main",
+  "createdAt": "2026-08-13T04:51:16.319Z",
+  "updatedAt": "2026-08-13T04:57:20.608Z",
+  "archivedAt": "2026-08-13T04:57:20.608Z"
+}

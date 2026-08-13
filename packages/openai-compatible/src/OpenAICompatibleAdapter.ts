@@ -1,7 +1,7 @@
 import type { AgentMessage, AssistantMessage, LLMAdapter, LLMRequest, LLMResponse } from '@karkata/core'
 import { z } from 'zod'
 
-export interface OpenAIAdapterConfig {
+export interface OpenAICompatibleAdapterConfig {
   model: string
   baseURL: string
   apiKey?: string
@@ -24,10 +24,10 @@ const responseSchema = z.object({
   usage: z.object({ prompt_tokens: z.number().optional(), completion_tokens: z.number().optional(), total_tokens: z.number().optional() }).optional(),
 })
 
-export class OpenAIAdapter implements LLMAdapter {
-  readonly #config: Required<Pick<OpenAIAdapterConfig, 'maxRetries'>> & OpenAIAdapterConfig
+export class OpenAICompatibleAdapter implements LLMAdapter {
+  readonly #config: Required<Pick<OpenAICompatibleAdapterConfig, 'maxRetries'>> & OpenAICompatibleAdapterConfig
   readonly #fetch: typeof globalThis.fetch
-  constructor(config: OpenAIAdapterConfig) {
+  constructor(config: OpenAICompatibleAdapterConfig) {
     if (!config.model || !config.baseURL) throw new TypeError('model and baseURL are required')
     this.#config = { ...config, maxRetries: config.maxRetries ?? 2 }
     this.#fetch = (config.fetch ?? globalThis.fetch).bind(globalThis)
