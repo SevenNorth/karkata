@@ -11,16 +11,25 @@
     "npm": ">=11"
   },
   "scripts": {
+    "ai:change": "node scripts/ai-change.mjs",
+    "ai:change:archive": "node scripts/ai-change.mjs archive",
+    "ai:change:list": "node scripts/ai-change.mjs list",
+    "ai:change:new": "node scripts/ai-change.mjs new",
+    "ai:change:resume": "node scripts/ai-change.mjs resume",
+    "ai:change:revise": "node scripts/ai-change.mjs revise",
+    "ai:change:status": "node scripts/ai-change.mjs status",
+    "ai:change:validate": "node scripts/ai-change.mjs validate",
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --build --pretty false",
     "check": "npm run typecheck && npm test && npm run build",
     "clean": "node scripts/clean.mjs"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.18",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
 }
-

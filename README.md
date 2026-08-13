@@ -51,3 +51,14 @@ Do not embed long-lived model API keys in public browser bundles. Prefer an appl
 npm install
 npm run check
 ```
+
+All runtime behavior is developed with test-driven development. The adopted architecture and contracts are indexed in [design documents](./docs/design/README.md), repository rules are defined in [AGENTS.md](./AGENTS.md), and lightweight or full change processes are documented in [AI workflows](./ai-workflows/README.md).
+
+Useful commands:
+
+```bash
+npm test                 # run all tests once
+npm run test:watch       # TDD watch mode
+npm run test:coverage    # coverage report for shared runtime changes
+npm run check            # typecheck, tests, and package builds
+```
