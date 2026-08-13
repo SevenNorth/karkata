@@ -1,0 +1,10 @@
+{
+  "id": "prompt-assembly",
+  "title": "增加默认提示词与动态指导组装",
+  "type": "feature",
+  "status": "archived",
+  "branch": "main",
+  "createdAt": "2026-08-13T03:32:08.078Z",
+  "updatedAt": "2026-08-13T03:42:11.296Z",
+  "archivedAt": "2026-08-13T03:42:11.296Z"
+}

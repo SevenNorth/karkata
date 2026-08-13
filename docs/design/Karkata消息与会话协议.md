@@ -107,6 +107,17 @@ Agent Core 负责：
 - 生成 `ToolResultMessage`。
 - 维护消息顺序和会话不变式。
 
+### 4.1 临时 System Message
+
+每次调用 LLM 前，Core 将内置默认提示词、静态 `systemPrompt` 增强和本步 `resolveInstructions()` 的动态指导组装成一条临时 `SystemMessage`，放在模型请求首位。
+
+该消息属于请求控制面，不属于会话数据：
+
+- 不写入 `committedHistory` 或 `runMessages`。
+- 不出现在 `AgentState.messages`，UI 默认不会回显。
+- 不在后续请求中从历史累积；每一步都基于当前指导重新组装一条。
+- `clearHistory()` 只清空会话消息，不清空或重建提示词配置。
+
 ## 5. 单轮工具调用序列
 
 ```mermaid
@@ -163,7 +174,7 @@ await agent.send('开始处理另一个客户')
 `clearHistory()` 的约定：
 
 - 在 `running` 状态调用时抛出 `AgentBusyError`。
-- 清空全部会话消息和上一运行结果。
+- 清空全部会话消息和上一运行结果；临时 system 消息从不属于历史。
 - 不删除工具、订阅者和 Agent 配置。
 - 提交一次新的 `idle` 状态快照。
 
@@ -199,4 +210,3 @@ Agent 内部保留完整规范化历史，但 `AgentState` 默认只暴露适合
 - 同一 Agent 的第二次 `send()` 默认看到第一次成功会话。
 - 失败或中断的运行不会在下次模型请求中留下未配对 Tool Call。
 - `clearHistory()` 在运行期间不能改变正在使用的上下文。
-

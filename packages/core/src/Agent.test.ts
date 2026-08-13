@@ -19,6 +19,113 @@ const message = (content: string): LLMResponse => ({ message: { role: 'assistant
 const toolCall = (callId: string, name: string, input: unknown): LLMResponse => ({ message: { role: 'assistant', content: null, toolCalls: [{ callId, name, input }] } })
 
 describe('Agent', () => {
+  it('assembles default, static, and dynamic instructions without exposing them in state history', async () => {
+    const llm = new ScriptedLLM([message('done')])
+    const resolveInstructions = vi.fn(() => 'Current module: refunds')
+    const agent = new Agent({ llm, systemPrompt: 'Reply in Chinese', resolveInstructions })
+
+    await agent.send('help')
+
+    const system = llm.requests[0]!.messages[0]
+    expect(system).toMatchObject({ role: 'system' })
+    expect(system?.content).toContain('Karkata')
+    expect(system?.content).toContain('Reply in Chinese')
+    expect(system?.content).toContain('Current module: refunds')
+    expect(agent.state.messages.every((item) => item.role !== 'system')).toBe(true)
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'help' },
+      { role: 'assistant', content: 'done' },
+    ])
+  })
+
+  it('resolves instructions before every model step with a frozen tool snapshot', async () => {
+    const tool: Tool = { name: 'lookup', description: 'Lookup', inputSchema: z.object({}), execute: () => 'found' }
+    const llm = new ScriptedLLM([toolCall('call-1', 'lookup', {}), message('done')])
+    const contexts: unknown[] = []
+    const resolveInstructions = vi.fn(async (context) => {
+      contexts.push(context)
+      return `Step ${context.step}`
+    })
+    const agent = new Agent({ llm, tools: [{ tool, scope: 'orders' }], resolveInstructions })
+
+    await agent.send('find')
+
+    expect(resolveInstructions).toHaveBeenCalledTimes(2)
+    expect(contexts).toEqual([
+      expect.objectContaining({ step: 1, tools: [{ name: 'lookup', description: 'Lookup', scope: 'orders' }] }),
+      expect.objectContaining({ step: 2, tools: [{ name: 'lookup', description: 'Lookup', scope: 'orders' }] }),
+    ])
+    const typedContexts = contexts as Array<{ runId: string; signal: AbortSignal; tools: readonly unknown[] }>
+    expect(typedContexts[0]!.runId).toBe(typedContexts[1]!.runId)
+    expect(typedContexts[0]!.signal).toBe(typedContexts[1]!.signal)
+    for (const context of typedContexts) {
+      expect(Object.isFrozen(context)).toBe(true)
+      expect(Object.isFrozen(context.tools)).toBe(true)
+      expect(Object.isFrozen(context.tools[0])).toBe(true)
+    }
+    expect(llm.requests[0]!.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('Step 1') })
+    expect(llm.requests[1]!.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('Step 2') })
+    expect(llm.requests[1]!.messages.filter((item) => item.role === 'system')).toHaveLength(1)
+  })
+
+  it('uses the same tool snapshot for instruction resolution and the model request', async () => {
+    const oldTool: Tool = { name: 'action', description: 'Old action', inputSchema: z.object({ old: z.string() }), execute: () => 'old' }
+    const newTool: Tool = { name: 'action', description: 'New action', inputSchema: z.object({ next: z.string() }), execute: () => 'new' }
+    const llm = new ScriptedLLM([message('done')])
+    let agent!: Agent
+    const resolveInstructions = vi.fn((context) => {
+      agent.replaceTool(newTool)
+      return `Available: ${context.tools[0]?.description}`
+    })
+    agent = new Agent({ llm, tools: [oldTool], resolveInstructions })
+
+    await agent.send('act')
+
+    expect(llm.requests[0]!.tools[0]?.description).toBe('Old action')
+    expect(llm.requests[0]!.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('Available: Old action') })
+  })
+
+  it('settles when an instruction resolver ignores cancellation', async () => {
+    const llm = new ScriptedLLM([])
+    const agent = new Agent({ llm, resolveInstructions: () => new Promise(() => undefined) })
+
+    const run = agent.send('wait')
+    await Promise.resolve()
+    agent.abort()
+
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    expect(llm.requests).toHaveLength(0)
+  })
+
+  it('classifies instruction resolver failures and invalid values without calling the model', async () => {
+    const failingLLM = new ScriptedLLM([])
+    const failingAgent = new Agent({ llm: failingLLM, resolveInstructions: () => { throw new Error('resolver failed') } })
+    await expect(failingAgent.send('help')).resolves.toMatchObject({ status: 'error', error: { code: 'INSTRUCTION_RESOLUTION_ERROR' } })
+    expect(failingLLM.requests).toHaveLength(0)
+
+    const invalidLLM = new ScriptedLLM([])
+    const invalidAgent = new Agent({ llm: invalidLLM, resolveInstructions: (() => 42) as never })
+    await expect(invalidAgent.send('help')).resolves.toMatchObject({ status: 'error', error: { code: 'INSTRUCTION_RESOLUTION_ERROR' } })
+    expect(invalidLLM.requests).toHaveLength(0)
+  })
+
+  it('rejects oversized static or dynamic instructions without calling the model', async () => {
+    const staticLLM = new ScriptedLLM([])
+    const staticAgent = new Agent({ llm: staticLLM, systemPrompt: '1234', maxInstructionsLength: 3 })
+    await expect(staticAgent.send('help')).resolves.toMatchObject({ status: 'error', error: { code: 'INSTRUCTIONS_TOO_LARGE' } })
+    expect(staticLLM.requests).toHaveLength(0)
+
+    const dynamicLLM = new ScriptedLLM([])
+    const dynamicAgent = new Agent({ llm: dynamicLLM, resolveInstructions: () => '1234', maxInstructionsLength: 3 })
+    await expect(dynamicAgent.send('help')).resolves.toMatchObject({ status: 'error', error: { code: 'INSTRUCTIONS_TOO_LARGE' } })
+    expect(dynamicLLM.requests).toHaveLength(0)
+  })
+
+  it('rejects an invalid instruction length limit during construction', () => {
+    expect(() => new Agent({ llm: new ScriptedLLM([]), maxInstructionsLength: -1 })).toThrow('maxInstructionsLength must be a non-negative finite integer')
+    expect(() => new Agent({ llm: new ScriptedLLM([]), maxInstructionsLength: Number.POSITIVE_INFINITY })).toThrow('maxInstructionsLength must be a non-negative finite integer')
+  })
+
   it('executes a global tool supplied in the constructor', async () => {
     const llm = new ScriptedLLM([toolCall('call-1', 'sum', { a: 2, b: 3 }), message('5')])
     const sum: Tool<{ a: number; b: number }, number> = { name: 'sum', description: 'Add numbers', inputSchema: z.object({ a: z.number(), b: z.number() }), execute: ({ a, b }) => a + b }

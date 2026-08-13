@@ -1,12 +1,13 @@
 import { awaitWithAbort } from './abort.js'
 import { AgentBusyError, AgentDisposedError, errorMessage } from './errors.js'
+import { assembleSystemMessage, createInstructionResolverContext, PromptAssemblyError } from './prompt.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
 import type { AgentConfig, AgentError, AgentMessage, AgentResult, AgentState, AgentStateListener, AssistantMessage, InitialTool, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
 
 interface Run { runId: string; controller: AbortController; termination: 'manual' | 'timeout' | 'dispose' | undefined; timer: ReturnType<typeof setTimeout>; step: number }
 
 export class Agent {
-  readonly #config: Required<Pick<AgentConfig, 'maxSteps' | 'timeoutMs' | 'maxToolResultLength'>> & AgentConfig
+  readonly #config: Required<Pick<AgentConfig, 'maxSteps' | 'timeoutMs' | 'maxToolResultLength' | 'maxInstructionsLength'>> & AgentConfig
   readonly #registry: ToolRegistry
   readonly #listeners = new Set<AgentStateListener>()
   #history: AgentMessage[] = []
@@ -17,9 +18,11 @@ export class Agent {
 
   constructor(config: AgentConfig) {
     const { tools = [], ...runtimeConfig } = config
-    this.#config = { ...runtimeConfig, maxSteps: config.maxSteps ?? 20, timeoutMs: config.timeoutMs ?? 120_000, maxToolResultLength: config.maxToolResultLength ?? 20_000 }
+    if (config.maxInstructionsLength !== undefined && (!Number.isFinite(config.maxInstructionsLength) || !Number.isInteger(config.maxInstructionsLength) || config.maxInstructionsLength < 0)) {
+      throw new TypeError('maxInstructionsLength must be a non-negative finite integer')
+    }
+    this.#config = { ...runtimeConfig, maxSteps: config.maxSteps ?? 20, timeoutMs: config.timeoutMs ?? 120_000, maxToolResultLength: config.maxToolResultLength ?? 20_000, maxInstructionsLength: config.maxInstructionsLength ?? 20_000 }
     this.#registry = new ToolRegistry(tools.map((initial) => this.#normalizeInitialTool(initial)))
-    if (config.systemPrompt) this.#history.push({ role: 'system', content: config.systemPrompt })
     this.#commit({ messages: this.#history })
   }
   get state(): Readonly<AgentState> { return this.#state }
@@ -36,7 +39,7 @@ export class Agent {
   removeToolScope(scope: string): number { this.#assertUsable(); return this.#registry.removeScope(scope) }
   clearHistory(): void {
     this.#assertUsable(); if (this.#run) throw new AgentBusyError('Cannot clear history while running')
-    this.#history = this.#config.systemPrompt ? [{ role: 'system', content: this.#config.systemPrompt }] : []
+    this.#history = []
     this.#commit({ status: 'idle', runId: undefined, step: 0, messages: this.#history, result: undefined, error: undefined, activeTool: undefined })
   }
   abort(): void { if (this.#run) this.#terminate(this.#run, 'manual') }
@@ -53,7 +56,16 @@ export class Agent {
       while (run.step < this.#config.maxSteps) {
         run.step++
         const snapshot = this.#registry.snapshot()
-        const response = await awaitWithAbort(Promise.resolve(this.#config.llm.invoke({ messages: [...this.#history, ...this.#runMessages], tools: [...snapshot.registrations.values()].map(({ tool }) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })) }, { signal: run.controller.signal })), run.controller.signal)
+        const tools = [...snapshot.registrations.values()].map(({ tool }) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }))
+        const toolInfo = Object.freeze([...snapshot.registrations.values()].map(({ tool, scope }) => Object.freeze({ name: tool.name, description: tool.description, scope })))
+        const systemMessage = await assembleSystemMessage({
+          systemPrompt: this.#config.systemPrompt,
+          resolveInstructions: this.#config.resolveInstructions,
+          maxInstructionsLength: this.#config.maxInstructionsLength,
+          context: createInstructionResolverContext(run.runId, run.step, toolInfo, run.controller.signal),
+        })
+        this.#ensureCurrent(run)
+        const response = await awaitWithAbort(Promise.resolve(this.#config.llm.invoke({ messages: [systemMessage, ...this.#history, ...this.#runMessages], tools }, { signal: run.controller.signal })), run.controller.signal)
         this.#ensureCurrent(run)
         this.#validateAssistant(response.message)
         this.#runMessages.push(response.message)
@@ -79,6 +91,7 @@ export class Agent {
         const result: AgentResult = { status: 'aborted', runId, steps: run.step }
         this.#finish(run, result); return result
       }
+      if (error instanceof PromptAssemblyError) return this.#fail(run, { code: error.code, message: error.message, cause: error.cause })
       return this.#fail(run, { code: 'MODEL_ERROR', message: errorMessage(error), cause: error })
     }
   }

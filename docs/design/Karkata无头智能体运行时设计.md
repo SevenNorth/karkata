@@ -199,6 +199,10 @@ const agent = new Agent({
     apiKey: '...',
   }),
   systemPrompt: '你是业务操作助手。',
+  resolveInstructions: async ({ tools, signal }) => {
+    return loadModuleInstructions({ tools, signal })
+  },
+  maxInstructionsLength: 20_000,
   maxSteps: 20,
   timeoutMs: 120_000,
   tools: [
@@ -209,6 +213,10 @@ const agent = new Agent({
 ```
 
 `tools` 用于构造时批量装配固定能力。普通 Tool 默认属于 `global` scope；需要分组管理时使用 `{ tool, scope }`。scope 是任意非空分组键，Core 不解释其业务含义，不与前端路由绑定。初始化批次会先整体校验，任一无效项或重名都会使构造失败。
+
+Core 始终提供不可覆盖的通用默认提示词。`systemPrompt` 是构造时确定的静态应用增强；`resolveInstructions` 是每次调用模型前执行的同步或异步指导函数。Resolver 只返回一段可信字符串，不需要返回 scope 结构；宿主可从传入的当前工具信息自行判断页面、模块或业务上下文。
+
+默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此未来 UI 不会把内部提示词作为对话消息回显。
 
 建议的公开方法：
 

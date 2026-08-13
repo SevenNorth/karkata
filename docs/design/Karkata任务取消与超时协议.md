@@ -111,6 +111,7 @@ function awaitWithAbort<T>(
 - `LLMAdapter.invoke()`。
 - 每个 `Tool.execute()`。
 - 可选上下文 Provider。
+- `resolveInstructions()` 动态指导函数。
 - Runtime 中任何可能长时间等待的用户回调。
 
 上述代码是语义示意。实现还应在竞争结束后附加空的 rejection handler 或等价处理，保证迟到的 operation rejection 不会形成未处理 Promise rejection。
@@ -125,6 +126,7 @@ Runtime 一旦因手动取消或超时停止等待，底层操作的任何迟到
 - 不更新 `activeTool`。
 - 不修改最终 `AgentResult`。
 - 不向订阅者发送新运行状态。
+- 不调用后续 LLM，也不提交 Resolver 的迟到指导。
 
 每个异步续体在提交状态前必须确认：
 

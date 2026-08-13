@@ -59,11 +59,22 @@ export interface RegisteredToolInfo {
   readonly scope: string
 }
 
+export interface InstructionResolverContext {
+  readonly runId: string
+  readonly step: number
+  readonly tools: readonly Readonly<RegisteredToolInfo>[]
+  readonly signal: AbortSignal
+}
+export type InstructionResolver = (
+  context: InstructionResolverContext,
+) => string | null | undefined | Promise<string | null | undefined>
+
 export type AgentStatus = 'idle' | 'running' | 'completed' | 'error' | 'aborted' | 'disposed'
 export type AgentErrorCode =
   | 'MODEL_ERROR' | 'TOOL_NOT_FOUND' | 'TOOL_CHANGED' | 'TOOL_INVALID_INPUT'
   | 'TOOL_EXECUTION_ERROR' | 'MAX_STEPS_EXCEEDED' | 'TIMEOUT' | 'ABORTED'
-  | 'TOOL_RESULT_TOO_LARGE' | 'INTERNAL_ERROR'
+  | 'TOOL_RESULT_TOO_LARGE' | 'INSTRUCTION_RESOLUTION_ERROR' | 'INSTRUCTIONS_TOO_LARGE'
+  | 'INTERNAL_ERROR'
 
 export interface AgentError { code: AgentErrorCode; message: string; cause?: unknown }
 export type AgentResult =
@@ -87,6 +98,8 @@ export interface AgentConfig {
   llm: LLMAdapter
   tools?: readonly InitialTool[]
   systemPrompt?: string
+  resolveInstructions?: InstructionResolver
+  maxInstructionsLength?: number
   maxSteps?: number
   timeoutMs?: number
   maxToolResultLength?: number
