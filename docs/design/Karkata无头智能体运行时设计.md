@@ -284,13 +284,23 @@ interface ToolContext {
   step: number
 }
 
-interface Tool<TInput = unknown, TOutput = unknown> {
+type ToolOutput =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly ToolOutput[]
+  | { readonly [key: string]: ToolOutput }
+
+interface Tool<TInput = unknown, TOutput extends ToolOutput = ToolOutput> {
   name: string
   description: string
   inputSchema: Schema<TInput>
   execute(input: TInput, context: ToolContext): Promise<TOutput> | TOutput
 }
 ```
+
+`execute()` 可以定义在任意业务模块，并可通过依赖注入或闭包访问宿主提供的服务。成功执行必须显式返回 `ToolOutput`；纯操作工具返回 `{ success: true }` 等最小确认结果，不需要把底层业务返回值直接提供给模型。`defineTool()` 对推断输出做递归类型校验，拒绝 `void`、`undefined` 和其他明显无效类型，同时接受字段均合法的命名业务 DTO。Runtime 仍负责检测显式类型绕过、非有限数字、非普通对象、symbol 属性、循环引用与长度上限。
 
 工具输出必须可序列化为 JSON 或可安全转换为文本。循环引用、DOM 对象、Response 对象等不应直接返回给 Agent。
 

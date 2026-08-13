@@ -2,6 +2,7 @@ import { awaitWithAbort } from './abort.js'
 import { AgentBusyError, AgentDisposedError, errorMessage } from './errors.js'
 import { assembleSystemMessage, createInstructionResolverContext, PromptAssemblyError } from './prompt.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
+import { serializeToolOutput } from './toolOutput.js'
 import type { AgentConfig, AgentError, AgentMessage, AgentResult, AgentState, AgentStateListener, AssistantMessage, InitialTool, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
 
 interface Run { runId: string; controller: AbortController; termination: 'manual' | 'timeout' | 'dispose' | undefined; timer: ReturnType<typeof setTimeout>; step: number }
@@ -116,7 +117,7 @@ export class Agent {
     try {
       const output = await awaitWithAbort(Promise.resolve(registration.tool.execute(parsed.data, { signal: run.controller.signal, runId: run.runId, step: run.step })), run.controller.signal)
       this.#ensureCurrent(run)
-      let content = this.#serialize(output)
+      let content = serializeToolOutput(output)
       if (content.length > this.#config.maxToolResultLength) content = `${content.slice(0, this.#config.maxToolResultLength)}\n[truncated]`
       return { role: 'tool', callId, name: registration.tool.name, content, isError: false }
     } catch (error) {
@@ -125,7 +126,6 @@ export class Agent {
     }
   }
   #toolError(callId: string, name: string, code: string, message: string): ToolResultMessage { return { role: 'tool', callId, name, content: JSON.stringify({ error: { code, message } }), isError: true } }
-  #serialize(value: unknown): string { if (typeof value === 'string') return value; const result = JSON.stringify(value); if (result === undefined) throw new Error('Tool output is not serializable'); return result }
   #validateAssistant(message: AssistantMessage): void { if (!message.content && !message.toolCalls?.length) throw new Error('Assistant message must contain content or tool calls') }
   #terminate(run: Run, reason: Run['termination']): void { if (run.termination) return; run.termination = reason; run.controller.abort() }
   #ensureCurrent(run: Run): void { if (this.#run?.runId !== run.runId || run.controller.signal.aborted) throw new DOMException('The operation was aborted', 'AbortError') }

@@ -37,13 +37,31 @@ export interface LLMAdapter {
 }
 
 export interface ToolContext { signal: AbortSignal; runId: string; step: number }
+export type ToolOutput =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly ToolOutput[]
+  | { readonly [key: string]: ToolOutput }
+type ValidatedToolOutput<T> =
+  T extends string | number | boolean | null ? T
+    : T extends (...args: never[]) => unknown ? never
+      : T extends readonly unknown[] ? { readonly [K in keyof T]: ValidatedToolOutput<T[K]> }
+        : T extends object ? { readonly [K in keyof T]: ValidatedToolOutput<T[K]> }
+          : never
+type InvalidToolOutput = { readonly __toolOutputMustBeModelVisible: never }
 export interface Tool<TInput = unknown, TOutput = unknown> {
   name: string
   description: string
   inputSchema: z.ZodType<TInput>
   execute(input: TInput, context: ToolContext): Promise<TOutput> | TOutput
 }
-export function defineTool<TInput, TOutput>(tool: Tool<TInput, TOutput>): Tool<TInput, TOutput> {
+export function defineTool<TInput, TOutput>(
+  tool: Tool<TInput, TOutput> & ([TOutput] extends [ToolOutput]
+    ? unknown
+    : [TOutput] extends [ValidatedToolOutput<TOutput>] ? unknown : InvalidToolOutput),
+): Tool<TInput, TOutput> {
   return tool
 }
 

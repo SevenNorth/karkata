@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { Agent } from './Agent.js'
 import { ToolRegistry } from './ToolRegistry.js'
-import type { InitialTool, LLMAdapter, LLMRequest, LLMResponse, Tool } from './types.js'
+import type { InitialTool, LLMAdapter, LLMRequest, LLMResponse, Tool, ToolOutput } from './types.js'
 
 class ScriptedLLM implements LLMAdapter {
   readonly requests: LLMRequest[] = []
@@ -133,6 +133,78 @@ describe('Agent', () => {
 
     await expect(agent.send('add')).resolves.toMatchObject({ status: 'completed', content: '5' })
     expect(llm.requests[0]!.tools.map(({ name }) => name)).toEqual(['sum'])
+  })
+
+  it('serializes recursive tool output for the next model step', async () => {
+    const llm = new ScriptedLLM([toolCall('call-1', 'inspect', {}), message('done')])
+    const agent = new Agent({
+      llm,
+      tools: [{
+        name: 'inspect',
+        description: 'Inspect structured data',
+        inputSchema: z.object({}),
+        execute: () => ({ success: true, details: { ids: ['1', '2'], note: null } } as const),
+      }],
+    })
+
+    await agent.send('inspect')
+
+    expect(llm.requests[1]!.messages.at(-1)).toEqual({
+      role: 'tool',
+      callId: 'call-1',
+      name: 'inspect',
+      content: '{"success":true,"details":{"ids":["1","2"],"note":null}}',
+      isError: false,
+    })
+  })
+
+  it('reports a serialization error when an invalid output bypasses the type contract', async () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    const llm = new ScriptedLLM([toolCall('call-1', 'invalid_output', {}), message('recovered')])
+    const agent = new Agent({
+      llm,
+      tools: [{
+        name: 'invalid_output',
+        description: 'Return an invalid output',
+        inputSchema: z.object({}),
+        execute: () => circular as ToolOutput,
+      }],
+    })
+
+    await expect(agent.send('run')).resolves.toMatchObject({ status: 'completed', content: 'recovered' })
+    expect(llm.requests[1]!.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      callId: 'call-1',
+      name: 'invalid_output',
+      isError: true,
+      content: expect.stringContaining('TOOL_EXECUTION_ERROR'),
+    })
+  })
+
+  it.each([
+    ['non-finite number', Number.POSITIVE_INFINITY],
+    ['class instance', new (class Result { readonly value = 1 })()],
+    ['symbol property', { [Symbol('hidden')]: true }],
+  ])('reports a serialization error for a %s output', async (_label, invalidOutput) => {
+    const llm = new ScriptedLLM([toolCall('call-1', 'invalid_output', {}), message('recovered')])
+    const agent = new Agent({
+      llm,
+      tools: [{
+        name: 'invalid_output',
+        description: 'Return an invalid output',
+        inputSchema: z.object({}),
+        execute: () => invalidOutput as ToolOutput,
+      }],
+    })
+
+    await agent.send('run')
+
+    expect(llm.requests[1]!.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      isError: true,
+      content: expect.stringContaining('TOOL_EXECUTION_ERROR'),
+    })
   })
 
   it('accepts any non-empty scope key for an initial tool', () => {

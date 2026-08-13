@@ -11,6 +11,10 @@
 
 ## 2. 核心决策
 
+- 工具成功输出必须符合公开 `ToolOutput`：JSON 风格的标量、递归数组或普通对象，不允许 `void` 和 `undefined`。
+- 纯操作工具显式返回最小确认对象；涉及敏感业务数据时先映射为安全 DTO，再交给模型。
+- `defineTool()` 对推断输出做递归类型校验，但 TypeScript 约束不能替代 Runtime 校验；非有限数字、非普通对象、symbol 属性、循环引用和显式类型绕过仍转换为 `TOOL_EXECUTION_ERROR`。
+
 - 每次注册都生成唯一的 `registrationId`，即使工具名称不变。
 - 模型请求使用的工具快照保留 `name + registrationId + schema + execute` 的一致组合。
 - 执行 Tool Call 时使用该快照内的 Schema 与实现，不按名称重新取最新实现。

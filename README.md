@@ -55,6 +55,8 @@ unsubscribe()
 
 Scopes are user-defined grouping keys. Empty scopes remain discoverable until explicitly removed with `agent.removeToolScope(scope)`; `global` follows the same lifecycle as any other scope.
 
+Every successful tool must explicitly return a model-visible `ToolOutput`: a finite number, string, boolean, null, or a recursively composed array/plain object of those values. Action-only tools should return a minimal confirmation such as `{ success: true }`; tools handling sensitive business data should map internal results to a safe DTO instead of returning them directly. `defineTool()` rejects `void`, `undefined`, and other clearly invalid outputs, while the Runtime retains validation for explicit type bypasses, non-plain objects, and circular values.
+
 Karkata always sends a built-in runtime system prompt. `systemPrompt` adds static application instructions, while `resolveInstructions` can synchronously or asynchronously provide trusted instructions before each model step. These internal instructions are sent only to the model and are not included in `agent.state.messages` or conversation history.
 
 `createAgent()` is the concise OpenAI-compatible entry point. It creates an `OpenAICompatibleAdapter` internally while keeping provider settings separate from Runtime settings under `agent`. Advanced integrations can continue to use `new Agent({ llm: new OpenAICompatibleAdapter(...) })`, and other model protocols can implement the Core `LLMAdapter` contract without changing the Runtime.
