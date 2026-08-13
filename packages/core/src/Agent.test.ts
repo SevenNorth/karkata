@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { Agent } from './Agent.js'
+import { ModelError } from './index.js'
 import { ToolRegistry } from './ToolRegistry.js'
 import type { InitialTool, LLMAdapter, LLMRequest, LLMResponse, Tool, ToolOutput } from './types.js'
 
@@ -358,6 +359,78 @@ describe('Agent', () => {
     await vi.advanceTimersByTimeAsync(50)
     await expect(run).resolves.toMatchObject({ status: 'error', error: { code: 'TIMEOUT' } })
     vi.useRealTimers()
+  })
+
+  it.each([
+    ['MODEL_NETWORK_ERROR', true, undefined],
+    ['MODEL_AUTH_ERROR', false, 401],
+    ['MODEL_RATE_LIMIT', true, 429],
+    ['MODEL_INVALID_RESPONSE', false, 200],
+    ['MODEL_PROVIDER_ERROR', true, 503],
+  ] as const)('maps a standardized %s without exposing its cause', async (code, retryable, statusCode) => {
+    const secretCause = new Error('Authorization: Bearer secret-token')
+    const agent = new Agent({
+      llm: {
+        invoke: () => Promise.reject(new ModelError({
+          code,
+          message: `Safe model failure: ${code}`,
+          retryable,
+          ...(statusCode === undefined ? {} : { statusCode }),
+          cause: secretCause,
+        })),
+      },
+    })
+
+    const result = await agent.send('fail safely')
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: {
+        code,
+        message: `Safe model failure: ${code}`,
+        retryable,
+        ...(statusCode === undefined ? {} : { statusCode }),
+      },
+    })
+    expect(result).not.toHaveProperty('error.cause')
+    expect(agent.state.error).toEqual(result.status === 'error' ? result.error : undefined)
+    expect(agent.state.messages).toEqual([])
+    expect(JSON.stringify(agent.state)).not.toContain('secret-token')
+  })
+
+  it('keeps a non-retryable MODEL_ERROR fallback for unclassified adapter failures', async () => {
+    const agent = new Agent({ llm: { invoke: () => Promise.reject(new Error('Authorization: Bearer adapter-secret')) } })
+
+    await expect(agent.send('fail')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'MODEL_ERROR', message: 'Model invocation failed', retryable: false },
+    })
+    expect(agent.state.error).not.toHaveProperty('cause')
+    expect(JSON.stringify(agent.state)).not.toContain('adapter-secret')
+  })
+
+  it('validates standardized model error metadata at runtime', () => {
+    expect(() => new ModelError({ code: 'MODEL_AUTH_ERROR', message: '', retryable: false })).toThrow('message must not be empty')
+    expect(() => new ModelError({ code: 'INVALID' as never, message: 'invalid code', retryable: false })).toThrow('code is invalid')
+    expect(() => new ModelError({ code: 'MODEL_AUTH_ERROR', message: 'invalid retryable', retryable: 'yes' as never })).toThrow('retryable must be a boolean')
+    expect(() => new ModelError({ code: 'MODEL_AUTH_ERROR', message: 'invalid status', retryable: false, statusCode: 401.5 })).toThrow('statusCode must be a finite integer')
+  })
+
+  it('ignores a standardized model error that arrives after manual cancellation', async () => {
+    let rejectModel!: (error: unknown) => void
+    const agent = new Agent({
+      llm: { invoke: () => new Promise((_resolve, reject) => { rejectModel = reject }) },
+    })
+    const run = agent.send('cancel')
+    await Promise.resolve()
+
+    agent.abort()
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    rejectModel(new ModelError({ code: 'MODEL_RATE_LIMIT', message: 'too late', retryable: true, statusCode: 429 }))
+    await Promise.resolve()
+
+    expect(agent.state).toMatchObject({ status: 'aborted', result: { status: 'aborted' } })
+    expect(agent.state.error).toBeUndefined()
   })
 
   it('isolates subscriber errors', async () => {

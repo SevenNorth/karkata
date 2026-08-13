@@ -88,13 +88,21 @@ export type InstructionResolver = (
 ) => string | null | undefined | Promise<string | null | undefined>
 
 export type AgentStatus = 'idle' | 'running' | 'completed' | 'error' | 'aborted' | 'disposed'
+export type ModelErrorCode =
+  | 'MODEL_NETWORK_ERROR' | 'MODEL_AUTH_ERROR' | 'MODEL_RATE_LIMIT'
+  | 'MODEL_INVALID_RESPONSE' | 'MODEL_PROVIDER_ERROR'
 export type AgentErrorCode =
-  | 'MODEL_ERROR' | 'TOOL_NOT_FOUND' | 'TOOL_CHANGED' | 'TOOL_INVALID_INPUT'
+  | ModelErrorCode | 'MODEL_ERROR' | 'TOOL_NOT_FOUND' | 'TOOL_CHANGED' | 'TOOL_INVALID_INPUT'
   | 'TOOL_EXECUTION_ERROR' | 'MAX_STEPS_EXCEEDED' | 'TIMEOUT' | 'ABORTED'
   | 'TOOL_RESULT_TOO_LARGE' | 'INSTRUCTION_RESOLUTION_ERROR' | 'INSTRUCTIONS_TOO_LARGE'
   | 'INTERNAL_ERROR'
 
-export interface AgentError { code: AgentErrorCode; message: string; cause?: unknown }
+export interface AgentError {
+  code: AgentErrorCode
+  message: string
+  retryable: boolean
+  statusCode?: number | undefined
+}
 export type AgentResult =
   | { status: 'completed'; runId: string; content: string; steps: number }
   | { status: 'aborted'; runId: string; steps: number }

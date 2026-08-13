@@ -630,6 +630,8 @@ type AgentErrorCode =
   | 'MODEL_AUTH_ERROR'
   | 'MODEL_RATE_LIMIT'
   | 'MODEL_INVALID_RESPONSE'
+  | 'MODEL_PROVIDER_ERROR'
+  | 'MODEL_ERROR'
   | 'TOOL_NOT_FOUND'
   | 'TOOL_CHANGED'
   | 'TOOL_INVALID_INPUT'
@@ -641,7 +643,23 @@ type AgentErrorCode =
   | 'INTERNAL_ERROR'
 ```
 
-每个 `AgentError` 应包含 `code`、`message`、可选 `cause` 与是否可重试的标记。API Key、Authorization Header 和未脱敏的供应商请求不得进入状态快照。
+每个 `AgentError` 包含 `code`、已脱敏的 `message`、必填 `retryable` 与可选有限整数 `statusCode`。原始 `cause`、API Key、Authorization Header、请求体、响应正文和未脱敏的供应商数据不得进入 `AgentResult` 或 `AgentState`。
+
+Adapter 通过 Core 导出的 Provider 无关 `ModelError` 报告标准化模型故障：
+
+```ts
+new ModelError({
+  code: 'MODEL_RATE_LIMIT',
+  message: 'Model rate limit exceeded with HTTP 429',
+  retryable: true,
+  statusCode: 429,
+  cause: providerError,
+})
+```
+
+`cause` 只保留在抛出的 `ModelError` 上供 Adapter 调用栈诊断，Core 复制到公开错误时将其删除。未采用该契约的第三方 Adapter 异常映射为不可重试的 `MODEL_ERROR`。取消 signal 已触发时 AbortError 直接穿透分类；Runtime 仍以手动中断或超时作为最终结果。
+
+OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 5xx 可重试；401/403、其他 4xx、响应 JSON/Schema/Tool Call 参数无效以及宿主 Header/请求转换回调失败不可重试。非成功 HTTP 响应正文不进入错误消息。
 
 ## 16. 建议实现阶段
 
@@ -663,7 +681,7 @@ type AgentErrorCode =
 - 工具作用域和 `replaceToolScope()`。
 - 可选 `createUnsafeJavaScriptTool()`。
 - 更完整的 token 上下文预算。
-- 更完整的错误分类与调试信息。
+- 模型错误分类、重试元数据与安全 HTTP 调试信息。
 
 ### 阶段三：生态能力
 

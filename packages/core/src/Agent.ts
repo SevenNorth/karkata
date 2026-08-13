@@ -1,5 +1,5 @@
 import { awaitWithAbort } from './abort.js'
-import { AgentBusyError, AgentDisposedError, errorMessage } from './errors.js'
+import { AgentBusyError, AgentDisposedError, errorMessage, ModelError } from './errors.js'
 import { assembleSystemMessage, createInstructionResolverContext, PromptAssemblyError } from './prompt.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
 import { serializeToolOutput } from './toolOutput.js'
@@ -84,16 +84,24 @@ export class Agent {
           this.#commit({ step: run.step, messages: [...this.#history, ...this.#runMessages], activeTool: undefined })
         }
       }
-      const error: AgentError = { code: 'MAX_STEPS_EXCEEDED', message: `Maximum steps exceeded: ${this.#config.maxSteps}` }
+      const error: AgentError = { code: 'MAX_STEPS_EXCEEDED', message: `Maximum steps exceeded: ${this.#config.maxSteps}`, retryable: false }
       return this.#fail(run, error)
     } catch (error) {
       if (run.controller.signal.aborted) {
-        if (run.termination === 'timeout') return this.#fail(run, { code: 'TIMEOUT', message: `Run timed out after ${this.#config.timeoutMs}ms` })
+        if (run.termination === 'timeout') return this.#fail(run, { code: 'TIMEOUT', message: `Run timed out after ${this.#config.timeoutMs}ms`, retryable: false })
         const result: AgentResult = { status: 'aborted', runId, steps: run.step }
         this.#finish(run, result); return result
       }
-      if (error instanceof PromptAssemblyError) return this.#fail(run, { code: error.code, message: error.message, cause: error.cause })
-      return this.#fail(run, { code: 'MODEL_ERROR', message: errorMessage(error), cause: error })
+      if (error instanceof PromptAssemblyError) return this.#fail(run, { code: error.code, message: error.message, retryable: false })
+      if (error instanceof ModelError) {
+        return this.#fail(run, {
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          ...(error.statusCode === undefined ? {} : { statusCode: error.statusCode }),
+        })
+      }
+      return this.#fail(run, { code: 'MODEL_ERROR', message: 'Model invocation failed', retryable: false })
     }
   }
 

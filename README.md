@@ -59,6 +59,8 @@ Every successful tool must explicitly return a model-visible `ToolOutput`: a fin
 
 Karkata always sends a built-in runtime system prompt. `systemPrompt` adds static application instructions, while `resolveInstructions` can synchronously or asynchronously provide trusted instructions before each model step. These internal instructions are sent only to the model and are not included in `agent.state.messages` or conversation history.
 
+Model failures are exposed as structured `AgentError` values with a stable `code`, safe `message`, `retryable` flag, and optional HTTP `statusCode`. OpenAI-compatible calls distinguish network, authentication, rate-limit, invalid-response, and provider failures; only network failures, HTTP 429, and HTTP 5xx are retried. Provider response bodies, request bodies, authorization data, and original error causes are not copied into `AgentResult` or `AgentState`. Custom adapters can throw the Core `ModelError` class to participate in the same classification contract; unclassified errors remain `MODEL_ERROR` and are not retryable.
+
 `createAgent()` is the concise OpenAI-compatible entry point. It creates an `OpenAICompatibleAdapter` internally while keeping provider settings separate from Runtime settings under `agent`. Advanced integrations can continue to use `new Agent({ llm: new OpenAICompatibleAdapter(...) })`, and other model protocols can implement the Core `LLMAdapter` contract without changing the Runtime.
 
 Do not embed long-lived model API keys in public browser bundles. Prefer an application proxy, short-lived token, or a custom authenticated `fetch` implementation.

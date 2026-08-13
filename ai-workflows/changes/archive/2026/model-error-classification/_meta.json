@@ -1,0 +1,10 @@
+{
+  "id": "model-error-classification",
+  "title": "完善模型错误分类与调试契约",
+  "type": "feature",
+  "status": "archived",
+  "branch": "main",
+  "createdAt": "2026-08-13T07:50:51.092Z",
+  "updatedAt": "2026-08-13T08:19:20.198Z",
+  "archivedAt": "2026-08-13T08:19:20.198Z"
+}
