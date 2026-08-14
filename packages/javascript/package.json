@@ -1,6 +1,24 @@
 {
   "name": "@karkata/javascript",
   "version": "0.1.0",
+  "description": "Explicitly registered unsafe JavaScript execution tool for trusted Karkata applications.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SevenNorth/karkata.git",
+    "directory": "packages/javascript"
+  },
+  "homepage": "https://github.com/SevenNorth/karkata#readme",
+  "bugs": {
+    "url": "https://github.com/SevenNorth/karkata/issues"
+  },
+  "keywords": ["ai", "agent", "javascript", "tool", "typescript"],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -11,7 +29,7 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "README.md", "README.en.md", "LICENSE"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run src",
@@ -22,4 +40,3 @@
     "zod": "^4.3.6"
   }
 }
-

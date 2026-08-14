@@ -1,0 +1,10 @@
+{
+  "id": "release-readiness-integration",
+  "title": "准备 0.1.0 发布与真实集成验证",
+  "type": "feature",
+  "status": "archived",
+  "branch": "main",
+  "createdAt": "2026-08-14T08:31:17.349Z",
+  "updatedAt": "2026-08-14T08:54:43.841Z",
+  "archivedAt": "2026-08-14T08:54:43.841Z"
+}

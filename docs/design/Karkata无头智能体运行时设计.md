@@ -765,7 +765,8 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 - 已完成：框架无关 Store 与基于 Web Component 的可选 `@karkata/ui`。
 - 已完成：Core 与 OpenAI-compatible 的流式回答基础。
 - 已完成：`@karkata/ui` 的增量 Assistant 消息投影。
-- 后续：checkpoint 与可插拔持久化。
+- 已完成：`0.1.0` 发布物准备、双语文档与隔离消费者/真实 Provider 验证入口。
+- 暂缓：checkpoint 与可插拔持久化；出现明确的跨刷新恢复需求后再单独设计。
 - 按需：原生 Provider 不透明 compaction item 适配。
 
 ## 17. 待后续确定的决策

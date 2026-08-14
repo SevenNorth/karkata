@@ -1,6 +1,24 @@
 {
   "name": "@karkata/ui",
   "version": "0.1.0",
+  "description": "Framework-neutral Agent UI store and optional Web Component panel for Karkata.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SevenNorth/karkata.git",
+    "directory": "packages/ui"
+  },
+  "homepage": "https://github.com/SevenNorth/karkata#readme",
+  "bugs": {
+    "url": "https://github.com/SevenNorth/karkata/issues"
+  },
+  "keywords": ["ai", "agent", "ui", "web-component", "typescript"],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -15,7 +33,7 @@
       "import": "./dist/web-component.js"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "README.md", "README.en.md", "LICENSE"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run src",

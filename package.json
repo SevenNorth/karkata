@@ -2,6 +2,23 @@
   "name": "karkata-monorepo",
   "private": true,
   "version": "0.1.0",
+  "description": "A lightweight, headless agent runtime for TypeScript applications.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SevenNorth/karkata.git"
+  },
+  "homepage": "https://github.com/SevenNorth/karkata#readme",
+  "bugs": {
+    "url": "https://github.com/SevenNorth/karkata/issues"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "typescript",
+    "runtime",
+    "headless"
+  ],
   "type": "module",
   "workspaces": [
     "packages/*"
@@ -23,6 +40,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:integration:real": "npm run build --workspaces --if-present && node scripts/release/real-provider-smoke.mjs",
+    "test:release": "node --test scripts/release/*.test.mjs",
+    "test:package": "node scripts/release/package-smoke.mjs",
     "typecheck": "tsc --build --pretty false && tsc -p packages/core/tsconfig.type-tests.json --pretty false",
     "check": "npm run typecheck && npm test && npm run build",
     "clean": "node scripts/clean.mjs",
