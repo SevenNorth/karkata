@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Agent } from './Agent.js'
 import { ModelError } from './index.js'
 import { ToolRegistry } from './ToolRegistry.js'
-import type { InitialTool, LLMAdapter, LLMRequest, LLMResponse, Tool, ToolOutput } from './types.js'
+import type { InitialTool, LLMAdapter, LLMRequest, LLMResponse, LLMStream, Tool, ToolOutput } from './types.js'
 
 class ScriptedLLM implements LLMAdapter {
   readonly requests: LLMRequest[] = []
@@ -19,7 +19,265 @@ class ScriptedLLM implements LLMAdapter {
 const message = (content: string): LLMResponse => ({ message: { role: 'assistant', content } })
 const toolCall = (callId: string, name: string, input: unknown): LLMResponse => ({ message: { role: 'assistant', content: null, toolCalls: [{ callId, name, input }] } })
 
+function textStream(chunks: readonly string[], response: LLMResponse): LLMStream {
+  return (async function* () {
+    for (const delta of chunks) yield { type: 'text_delta' as const, delta }
+    return response
+  })()
+}
+
 describe('Agent', () => {
+  it('uses invoke by default even when the adapter also supports streaming', async () => {
+    const invoke = vi.fn(async () => message('complete'))
+    const stream = vi.fn(() => textStream(['unused'], message('unused')))
+    const agent = new Agent({ llm: { invoke, stream } })
+
+    await expect(agent.send('hello')).resolves.toMatchObject({ status: 'completed', content: 'complete' })
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(stream).not.toHaveBeenCalled()
+  })
+
+  it('validates streaming configuration and adapter support during construction', () => {
+    const llm = new ScriptedLLM([])
+
+    expect(() => new Agent({ llm, streaming: {} })).toThrow('stream')
+    expect(() => new Agent({ llm: { ...llm, stream: () => textStream([], message('done')) }, streaming: { stateUpdateIntervalMs: -1 } })).toThrow('stateUpdateIntervalMs')
+    expect(() => new Agent({ llm: { ...llm, stream: () => textStream([], message('done')) }, streaming: { stateUpdateIntervalMs: 1.5 } })).toThrow('stateUpdateIntervalMs')
+    expect(() => new Agent({ llm: { ...llm, stream: () => textStream([], message('done')) }, streaming: { maxOutputLength: 0 } })).toThrow('maxOutputLength')
+    expect(() => new Agent({ llm: { ...llm, stream: () => textStream([], message('done')) }, streaming: { maxOutputLength: Number.POSITIVE_INFINITY } })).toThrow('maxOutputLength')
+  })
+
+  it('publishes cumulative partial responses without adding them to model messages', async () => {
+    let continueStream!: () => void
+    let finishStream!: () => void
+    const stream = vi.fn(() => (async function* () {
+      yield { type: 'text_delta' as const, delta: 'Hel' }
+      await new Promise<void>((resolve) => { continueStream = resolve })
+      yield { type: 'text_delta' as const, delta: 'lo' }
+      await new Promise<void>((resolve) => { finishStream = resolve })
+      return message('Hello')
+    })())
+    const agent = new Agent({
+      llm: { invoke: vi.fn(async () => message('unused')), stream },
+      streaming: { stateUpdateIntervalMs: 0 },
+    })
+    const observed: string[] = []
+    agent.subscribe((state) => {
+      if (state.partialResponse) observed.push(state.partialResponse.content)
+    })
+
+    const run = agent.send('greet')
+    await vi.waitFor(() => { expect(agent.state.partialResponse?.content).toBe('Hel') })
+    expect(agent.state.messages).toEqual([{ role: 'user', content: 'greet' }])
+
+    continueStream()
+    await vi.waitFor(() => { expect(agent.state.partialResponse?.content).toBe('Hello') })
+    expect(agent.state.messages).toEqual([{ role: 'user', content: 'greet' }])
+
+    finishStream()
+    await expect(run).resolves.toMatchObject({ status: 'completed', content: 'Hello' })
+    expect(observed).toEqual(['Hel', 'Hello'])
+    expect(agent.state.partialResponse).toBeUndefined()
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'greet' },
+      { role: 'assistant', content: 'Hello' },
+    ])
+  })
+
+  it('coalesces partial response snapshots with leading and trailing updates', async () => {
+    vi.useFakeTimers()
+    try {
+      let releaseBurst!: () => void
+      let finishStream!: () => void
+      const stream = vi.fn(() => (async function* () {
+        yield { type: 'text_delta' as const, delta: 'a' }
+        await new Promise<void>((resolve) => { releaseBurst = resolve })
+        yield { type: 'text_delta' as const, delta: 'b' }
+        yield { type: 'text_delta' as const, delta: 'c' }
+        await new Promise<void>((resolve) => { finishStream = resolve })
+        return message('abc')
+      })())
+      const agent = new Agent({
+        llm: { invoke: vi.fn(async () => message('unused')), stream },
+        streaming: { stateUpdateIntervalMs: 50 },
+      })
+      const observed: string[] = []
+      agent.subscribe((state) => {
+        if (state.partialResponse) observed.push(state.partialResponse.content)
+      })
+
+      const run = agent.send('burst')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(agent.state.partialResponse?.content).toBe('a')
+      releaseBurst()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(observed).toEqual(['a'])
+
+      await vi.advanceTimersByTimeAsync(49)
+      expect(observed).toEqual(['a'])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(observed).toEqual(['a', 'abc'])
+
+      finishStream()
+      await expect(run).resolves.toMatchObject({ status: 'completed', content: 'abc' })
+      expect(agent.state.partialResponse).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects malformed streaming output and rolls back the run', async () => {
+    const cases: Array<[string, () => LLMStream]> = [
+      ['missing final response', () => (async function* () {
+        yield { type: 'text_delta' as const, delta: 'partial' }
+        return undefined as never
+      })()],
+      ['empty delta', () => (async function* () {
+        yield { type: 'text_delta' as const, delta: '' }
+        return message('done')
+      })()],
+      ['mismatched final response', () => textStream(['partial'], message('different'))],
+      ['oversized deltas', () => textStream(['123', '456'], message('123456'))],
+      ['oversized final response', () => textStream([], message('123456'))],
+    ]
+
+    for (const [_label, createStream] of cases) {
+      const agent = new Agent({
+        llm: { invoke: vi.fn(async () => message('unused')), stream: createStream },
+        streaming: { stateUpdateIntervalMs: 0, maxOutputLength: 5 },
+      })
+
+      await expect(agent.send('fail')).resolves.toMatchObject({
+        status: 'error', error: { code: 'MODEL_INVALID_RESPONSE', retryable: false },
+      })
+      expect(agent.state.messages).toEqual([])
+      expect(agent.state.partialResponse).toBeUndefined()
+    }
+  })
+
+  it('rejects an invalid stream iterator before committing the run', async () => {
+    const agent = new Agent({
+      llm: {
+        invoke: vi.fn(async () => message('unused')),
+        stream: () => ({}) as LLMStream,
+      },
+      streaming: {},
+    })
+
+    await expect(agent.send('fail')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'MODEL_INVALID_RESPONSE', retryable: false },
+    })
+    expect(agent.state.messages).toEqual([])
+    expect(agent.state.partialResponse).toBeUndefined()
+  })
+
+  it('uses completed streaming tool calls in the existing multi-step loop', async () => {
+    const execute = vi.fn(() => ({ found: true }))
+    const streams = [
+      () => textStream([], toolCall('call-1', 'lookup', { id: '1' })),
+      () => textStream(['Found ', 'it'], message('Found it')),
+    ]
+    const stream = vi.fn(() => streams.shift()!())
+    const agent = new Agent({
+      llm: { invoke: vi.fn(async () => message('unused')), stream },
+      tools: [{ name: 'lookup', description: 'Lookup', inputSchema: z.object({ id: z.string() }), execute }],
+      streaming: { stateUpdateIntervalMs: 0 },
+    })
+
+    await expect(agent.send('find')).resolves.toMatchObject({ status: 'completed', content: 'Found it', steps: 2 })
+    expect(stream).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenCalledWith({ id: '1' }, expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'find' },
+      expect.objectContaining({ role: 'assistant', toolCalls: [expect.objectContaining({ callId: 'call-1' })] }),
+      expect.objectContaining({ role: 'tool', callId: 'call-1', isError: false }),
+      { role: 'assistant', content: 'Found it' },
+    ])
+  })
+
+  it('aborts a blocked stream without waiting for iterator cleanup and ignores a late delta', async () => {
+    let resolveNext!: (result: IteratorResult<{ type: 'text_delta'; delta: string }, LLMResponse>) => void
+    const never = new Promise<IteratorResult<{ type: 'text_delta'; delta: string }, LLMResponse>>(() => undefined)
+    const next = vi.fn()
+      .mockResolvedValueOnce({ done: false, value: { type: 'text_delta', delta: 'visible' } })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve }))
+      .mockImplementation(() => never)
+    const cleanup = vi.fn(() => new Promise<IteratorResult<{ type: 'text_delta'; delta: string }, LLMResponse>>(() => undefined))
+    const iterator = {
+      next,
+      return: cleanup,
+      [Symbol.asyncIterator]() { return this },
+    } satisfies LLMStream
+    const agent = new Agent({
+      llm: { invoke: vi.fn(async () => message('unused')), stream: () => iterator },
+      streaming: { stateUpdateIntervalMs: 0 },
+    })
+
+    const run = agent.send('cancel')
+    await vi.waitFor(() => { expect(agent.state.partialResponse?.content).toBe('visible') })
+    agent.abort()
+
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    expect(cleanup).toHaveBeenCalledOnce()
+    expect(agent.state.partialResponse).toBeUndefined()
+    resolveNext({ done: false, value: { type: 'text_delta', delta: ' too late' } })
+    await Promise.resolve()
+    expect(agent.state).toMatchObject({ status: 'aborted', messages: [] })
+    expect(agent.state.partialResponse).toBeUndefined()
+  })
+
+  it('times out a blocked stream and clears its partial response', async () => {
+    vi.useFakeTimers()
+    try {
+      const iterator = {
+        next: vi.fn()
+          .mockResolvedValueOnce({ done: false, value: { type: 'text_delta' as const, delta: 'partial' } })
+          .mockImplementation(() => new Promise(() => undefined)),
+        return: vi.fn(async () => ({ done: true as const, value: message('unused') })),
+        [Symbol.asyncIterator]() { return this },
+      } satisfies LLMStream
+      const agent = new Agent({
+        llm: { invoke: vi.fn(async () => message('unused')), stream: () => iterator },
+        streaming: { stateUpdateIntervalMs: 0 },
+        timeoutMs: 50,
+      })
+
+      const run = agent.send('timeout')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(agent.state.partialResponse?.content).toBe('partial')
+      await vi.advanceTimersByTimeAsync(50)
+
+      await expect(run).resolves.toMatchObject({ status: 'error', error: { code: 'TIMEOUT' } })
+      expect(agent.state.messages).toEqual([])
+      expect(agent.state.partialResponse).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('disposes a streaming run without retaining its partial response', async () => {
+    const iterator = {
+      next: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: { type: 'text_delta' as const, delta: 'partial' } })
+        .mockImplementation(() => new Promise(() => undefined)),
+      return: vi.fn(() => { throw new Error('cleanup failed') }),
+      [Symbol.asyncIterator]() { return this },
+    } satisfies LLMStream
+    const agent = new Agent({
+      llm: { invoke: vi.fn(async () => message('unused')), stream: () => iterator },
+      streaming: { stateUpdateIntervalMs: 0 },
+    })
+
+    const run = agent.send('dispose')
+    await vi.waitFor(() => { expect(agent.state.partialResponse?.content).toBe('partial') })
+    await agent.dispose()
+
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    expect(agent.state.status).toBe('disposed')
+    expect(agent.state.partialResponse).toBeUndefined()
+  })
+
   it('assembles default, static, and dynamic instructions without exposing them in state history', async () => {
     const llm = new ScriptedLLM([message('done')])
     const resolveInstructions = vi.fn(() => 'Current module: refunds')

@@ -32,8 +32,12 @@ export interface LLMRequest {
   readonly tools: readonly LLMToolDefinition[]
 }
 export interface LLMResponse { message: AssistantMessage; usage?: TokenUsage }
+export type LLMStreamEvent = { readonly type: 'text_delta'; readonly delta: string }
+export interface LLMStream
+  extends AsyncIterable<LLMStreamEvent>, AsyncIterator<LLMStreamEvent, LLMResponse, void> {}
 export interface LLMAdapter {
   invoke(request: LLMRequest, options: { signal: AbortSignal }): Promise<LLMResponse>
+  stream?(request: LLMRequest, options: { signal: AbortSignal }): LLMStream
 }
 
 export interface ContextUsage {
@@ -152,6 +156,11 @@ export interface AgentError {
   retryable: boolean
   statusCode?: number | undefined
 }
+export interface AgentPartialResponse {
+  readonly runId: string
+  readonly step: number
+  readonly content: string
+}
 export type AgentResult =
   | { status: 'completed'; runId: string; content: string; steps: number }
   | { status: 'aborted'; runId: string; steps: number }
@@ -166,10 +175,15 @@ export interface AgentState {
   result?: AgentResult | undefined
   error?: AgentError | undefined
   contextUsage?: Readonly<ContextUsage> | undefined
+  partialResponse?: Readonly<AgentPartialResponse> | undefined
   updatedAt: number
 }
 export type AgentStateListener = (state: Readonly<AgentState>) => void
 
+export interface AgentStreamingConfig {
+  readonly stateUpdateIntervalMs?: number
+  readonly maxOutputLength?: number
+}
 export interface AgentConfig {
   llm: LLMAdapter
   tools?: readonly InitialTool[]
@@ -177,6 +191,7 @@ export interface AgentConfig {
   resolveInstructions?: InstructionResolver
   maxInstructionsLength?: number
   contextBudget?: ContextBudgetConfig
+  streaming?: AgentStreamingConfig
   humanInput?: HumanInputConfig
   maxSteps?: number
   timeoutMs?: number

@@ -50,6 +50,10 @@ const agent = createAgent({
       },
     },
     humanInput: {},
+    streaming: {
+      stateUpdateIntervalMs: 32,
+      maxOutputLength: 200_000,
+    },
   },
 })
 
@@ -57,6 +61,9 @@ const unsubscribe = agent.subscribe((state) => {
   console.log(state.status, state.activeTool)
   if (state.contextUsage) {
     console.log(`${state.contextUsage.usedTokens} / ${state.contextUsage.maxTokens}`)
+  }
+  if (state.partialResponse) {
+    renderDraft(state.partialResponse.content)
   }
 })
 
@@ -87,6 +94,8 @@ Optional `contextBudget` protects each model call before it is sent. The estimat
 Optional `contextBudget.compaction` adds application-controlled history compression. When an estimate exceeds `triggerTokens`, `compactHistory` receives only frozen, successfully committed history plus the current signal and budget metadata. It can remove old complete turns or call a separately configured model to return a summarized `AgentMessage[]`; current run messages and tool schemas cannot be replaced. Karkata validates Tool Call/Result pairing, rebuilds the complete request, and requires the new estimate to be at most `targetTokens`. The candidate history is committed only if the run succeeds. Set the trigger below the provider's hard context limit so a model-based summarizer still has headroom, and keep summaries derived from conversation content at ordinary user-message privilege rather than treating them as trusted system instructions. Karkata does not choose a tokenizer, summarization model, or provider-specific compaction endpoint.
 
 Optional `humanInput: {}` enables Human-in-the-Loop questions. Karkata exposes a reserved `ask_user` tool to the model; when it is called, `state.status` becomes `waiting_for_input` and `subscribeRequests()` publishes a frozen request. The host resumes the same run with `respond(request.id, answer)`. Waiting obeys the run's existing timeout, `abort()`, and `dispose()` semantics, and late or duplicate responses are ignored. This model-initiated question is not an authorization boundary: applications must still enforce permissions for sensitive tools.
+
+Optional `streaming: {}` enables normalized text streaming when the selected Adapter implements `stream()`. `state.partialResponse` contains the cumulative text for the current model step and is published at most once every `stateUpdateIntervalMs` (default `32`; use `0` for every delta). It is a temporary UI projection, never part of `state.messages`, model history, or the final `AgentResult`; completion atomically replaces it with the validated Assistant message. `maxOutputLength` defaults to `200_000` characters and rejects an oversized or malformed stream without committing the current run. Streaming is disabled by default, so existing Adapters continue to use the required `invoke()` path unchanged.
 
 ## UI
 

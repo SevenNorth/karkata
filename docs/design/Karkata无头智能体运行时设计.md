@@ -134,15 +134,24 @@ src/
 ```ts
 export interface LLMAdapter {
   invoke(request: LLMRequest, options: { signal: AbortSignal }): Promise<LLMResponse>
+  stream?(request: LLMRequest, options: { signal: AbortSignal }): LLMStream
 }
 
 export interface LLMResponse {
   message: AssistantMessage
   usage?: TokenUsage
 }
+
+export type LLMStreamEvent = {
+  readonly type: 'text_delta'
+  readonly delta: string
+}
+
+export interface LLMStream
+  extends AsyncIterable<LLMStreamEvent>, AsyncIterator<LLMStreamEvent, LLMResponse, void> {}
 ```
 
-内部消息使用供应商无关的 `AgentMessage` 协议。每个 Tool Call 包含唯一 `callId`，工具结果通过该 ID 回填。首版对同一响应中的多个 Tool Call 按原顺序执行。详见 [Karkata 消息与会话协议](./Karkata消息与会话协议.md)。
+`invoke()` 是必需且默认的完整响应路径。显式配置 `streaming: {}` 后，Core 使用可选 `stream()`：iterator 只 yield 非空的规范化文本增量，并以 `done: true` 的完成值返回完整 `LLMResponse`。若产生过文本增量，其累积结果必须与最终 `message.content` 一致；Tool Call 只在最终响应中暴露。内部消息继续使用供应商无关的 `AgentMessage` 协议。每个 Tool Call 包含唯一 `callId`，工具结果通过该 ID 回填。首版对同一响应中的多个 Tool Call 按原顺序执行。详见 [Karkata 消息与会话协议](./Karkata消息与会话协议.md)。
 
 ### 5.2 Agent Core
 
@@ -381,11 +390,18 @@ interface AgentState {
     maxTokens: number
     usedTokens: number
   }
+  partialResponse?: {
+    runId: string
+    step: number
+    content: string
+  }
   updatedAt: number
 }
 ```
 
 `contextUsage` 只在配置预算时存在，供 UI 直接呈现“当前预计占用 / 最大输入预算”。`usedTokens` 是最近一次模型调用前对完整请求的估算，不是 Provider 返回的累计 usage 或计费统计。构造后初始值为 `0`；每一步预算检查后更新；成功、模型失败或超限后保留最近值；`clearHistory()` 重置为 `0`。状态继续以隔离快照发布。
+
+`partialResponse` 只在启用流式且当前模型步骤已经产生文本时存在。它是按 `runId + step` 标识的累计 UI 投影，不属于 `messages`、会话历史或 `AgentResult`。首个 delta 立即发布，后续采用 leading + trailing 限频；默认间隔为 `32ms`，`0` 表示每个 delta 都发布。完成时最终 AssistantMessage 与 partial 清理在同一状态提交中完成；失败、中断、超时、开始下一模型步骤、`clearHistory()` 和 `dispose()` 也会清理 partial 与尾随定时器。
 
 `waiting_for_input` 仅表示模型已通过 Human-in-the-Loop 特殊工具提出问题并存在未决请求。等待 HTTP、普通工具或模型仍属于 `running`。等待期间仍是同一个活动运行，不能再次 `send()` 或 `clearHistory()`，但可以 `abort()` 或 `dispose()`。
 
@@ -440,6 +456,8 @@ const unsubscribe = agent.subscribe((state) => {
 | `contextBudget.maxTokens` | 限制完整模型请求的预计输入 token | 由使用方按模型配置 |
 | `contextBudget.compaction.triggerTokens` | 在硬上限前触发历史压缩并保留摘要调用空间 | 小于或等于 `maxTokens` |
 | `contextBudget.compaction.targetTokens` | 压缩候选必须达到的完整请求目标 | 小于 `triggerTokens` |
+| `streaming.stateUpdateIntervalMs` | 限制累计部分回答的状态发布频率 | `32` |
+| `streaming.maxOutputLength` | 限制单个流式模型步骤的累计字符数 | `200000` |
 
 ### 9.1 上下文增长
 
@@ -487,6 +505,8 @@ sequenceDiagram
 - 中断不清空会话历史；使用方可以随后调用 `clearHistory()`。
 
 每个 LLM 与工具 Promise 都必须与取消信号竞争，且所有异步续体在提交状态前验证 `runId`。详见 [Karkata 任务取消与超时协议](./Karkata任务取消与超时协议.md)。
+
+流式路径对每次 `iterator.next()` 使用相同的取消竞争和 `runId` 门禁。终止或校验失败时，Runtime best-effort 调用 `iterator.return()`，但不等待清理 Promise；即使 Adapter 忽略信号或清理永不结束，`send()` 仍及时收敛，迟到 delta 不得修改状态或历史。
 
 ## 11. 工具热插拔
 
@@ -712,7 +732,7 @@ new ModelError({
 
 `cause` 只保留在抛出的 `ModelError` 上供 Adapter 调用栈诊断，Core 复制到公开错误时将其删除。未采用该契约的第三方 Adapter 异常映射为不可重试的 `MODEL_ERROR`。取消 signal 已触发时 AbortError 直接穿透分类；Runtime 仍以手动中断或超时作为最终结果。
 
-OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 5xx 可重试；401/403、其他 4xx、响应 JSON/Schema/Tool Call 参数无效以及宿主 Header/请求转换回调失败不可重试。非成功 HTTP 响应正文不进入错误消息。
+OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 5xx 可重试；401/403、其他 4xx、响应 JSON/Schema/Tool Call 参数无效以及宿主 Header/请求转换回调失败不可重试。非成功 HTTP 响应正文不进入错误消息。流式请求使用标准 SSE parser 处理跨网络 chunk 的 event，并在最终组装 Tool Call 参数。建连和 HTTP 错误沿用上述重试；成功响应体一旦开始消费就不自动重发，避免重复发布文本。`finish_reason` 后仍继续读取 usage，优先等待 `[DONE]`；兼容性 EOF 只有在已看到合法 `finish_reason` 时才接受。
 
 ## 16. 建议实现阶段
 
@@ -741,6 +761,8 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 - 已完成：宿主注入的历史摘要与裁剪策略。
 - 已完成：Human-in-the-Loop 用户输入协议。
 - 已完成：框架无关 Store 与基于 Web Component 的可选 `@karkata/ui`。
+- 已完成：Core 与 OpenAI-compatible 的流式回答基础。
+- 后续：`@karkata/ui` 的增量 Assistant 消息投影。
 - 后续：checkpoint 与可插拔持久化。
 - 按需：原生 Provider 不透明 compaction item 适配。
 

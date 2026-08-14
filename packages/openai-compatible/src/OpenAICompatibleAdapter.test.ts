@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { z } from 'zod'
-import { Agent, ModelError } from '@karkata/core'
+import { Agent, ModelError, type LLMResponse, type LLMStream } from '@karkata/core'
 import { createAgent, type OpenAICompatibleCreateAgentConfig, OpenAICompatibleAdapter } from './index.js'
 
 const request = { messages: [{ role: 'user' as const, content: 'find' }], tools: [] }
@@ -9,6 +9,25 @@ const successResponse = () => new Response(JSON.stringify({ choices: [{ message:
   status: 200,
   headers: { 'Content-Type': 'application/json' },
 })
+
+function sseResponse(parts: readonly string[]): Response {
+  const encoder = new TextEncoder()
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const part of parts) controller.enqueue(encoder.encode(part))
+      controller.close()
+    },
+  }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+}
+
+async function consumeStream(stream: LLMStream): Promise<{ deltas: string[]; response: LLMResponse }> {
+  const deltas: string[] = []
+  while (true) {
+    const result = await stream.next()
+    if (result.done) return { deltas, response: result.value }
+    deltas.push(result.value.delta)
+  }
+}
 
 describe('createAgent', () => {
   it('keeps the adapter owned by the provider factory', () => {
@@ -37,6 +56,28 @@ describe('createAgent', () => {
     expect(body.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('Reply briefly') })
   })
 
+  it('enables provider streaming through the nested runtime configuration', async () => {
+    const fetch = vi.fn(async () => sseResponse([
+      'data: {"choices":[{"index":0,"delta":{"content":"live"},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]))
+    const agent = createAgent({
+      model: 'test-model',
+      baseURL: 'https://llm.test/v1',
+      fetch,
+      agent: { streaming: { stateUpdateIntervalMs: 0 } },
+    })
+    const partials: string[] = []
+    agent.subscribe((state) => {
+      if (state.partialResponse) partials.push(state.partialResponse.content)
+    })
+
+    await expect(agent.send('help')).resolves.toMatchObject({ status: 'completed', content: 'live' })
+    expect(partials).toEqual(['live'])
+    expect(agent.state.partialResponse).toBeUndefined()
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]?.body))).toMatchObject({ stream: true })
+  })
+
   it('exposes a classified provider failure through the core agent without leaking secrets', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'response-secret' } }), { status: 401 }))
     const agent = createAgent({
@@ -61,6 +102,120 @@ describe('createAgent', () => {
 })
 
 describe('OpenAICompatibleAdapter', () => {
+  it('streams text across transport chunks and includes usage sent after finish_reason', async () => {
+    const events = [
+      'data: {"choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}\n\n',
+      'data: [DONE]\n\n',
+    ].join('')
+    const fetch = vi.fn(async () => sseResponse([
+      events.slice(0, 17), events.slice(17, 63), events.slice(63, 121), events.slice(121),
+    ]))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1/', fetch })
+
+    const result = await consumeStream(adapter.stream!(request, { signal: new AbortController().signal }))
+
+    expect(result).toEqual({
+      deltas: ['Hel', 'lo'],
+      response: {
+        message: { role: 'assistant', content: 'Hello' },
+        usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+      },
+    })
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as Record<string, unknown>
+    expect(body.stream).toBe(true)
+  })
+
+  it('assembles fragmented streaming tool calls before returning the final response', async () => {
+    const fetch = vi.fn(async () => sseResponse([
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"look","arguments":"{\\"id\\":"}}]},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"up","arguments":"\\"1\\"}"}}]},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch })
+
+    const result = await consumeStream(adapter.stream!(request, { signal: new AbortController().signal }))
+
+    expect(result.deltas).toEqual([])
+    expect(result.response.message).toEqual({
+      role: 'assistant',
+      content: null,
+      toolCalls: [{ callId: 'call-1', name: 'lookup', input: { id: '1' } }],
+    })
+  })
+
+  it('accepts EOF only after finish_reason for compatible providers without DONE', async () => {
+    const fetch = vi.fn(async () => sseResponse([
+      'data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n',
+    ]))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch })
+
+    await expect(consumeStream(adapter.stream!(request, { signal: new AbortController().signal }))).resolves.toEqual({
+      deltas: ['done'], response: { message: { role: 'assistant', content: 'done' } },
+    })
+  })
+
+  it.each([
+    ['invalid event JSON', ['data: not-json\n\n']],
+    ['EOF before completion', ['data: {"choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}\n\n']],
+    ['invalid tool arguments', [
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"lookup","arguments":"not-json"}}]},"finish_reason":"tool_calls"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]],
+  ] as const)('rejects %s as a non-retryable invalid response', async (_label, parts) => {
+    const fetch = vi.fn(async () => sseResponse(parts))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch, maxRetries: 2 })
+
+    await expect(consumeStream(adapter.stream!(request, { signal: new AbortController().signal }))).rejects.toMatchObject({
+      code: 'MODEL_INVALID_RESPONSE', retryable: false, statusCode: 200,
+    })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it('retries stream establishment errors but not failures while consuming the body', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(sseResponse([
+        'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n',
+      ]))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch, maxRetries: 1 })
+
+    await expect(consumeStream(adapter.stream!(request, { signal: new AbortController().signal }))).resolves.toMatchObject({
+      response: { message: { content: 'ok' } },
+    })
+    expect(fetch).toHaveBeenCalledTimes(2)
+
+    const bodyError = new TypeError('stream disconnected')
+    const failingFetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.error(bodyError) },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }))
+    const failingAdapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch: failingFetch, maxRetries: 2 })
+
+    await expect(consumeStream(failingAdapter.stream!(request, { signal: new AbortController().signal }))).rejects.toMatchObject({
+      code: 'MODEL_NETWORK_ERROR', retryable: true,
+    })
+    expect(failingFetch).toHaveBeenCalledOnce()
+  })
+
+  it('cancels a pending stream read without retrying', async () => {
+    const controller = new AbortController()
+    const fetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      pull() { return new Promise(() => undefined) },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch, maxRetries: 2 })
+    const consumption = consumeStream(adapter.stream!(request, { signal: controller.signal }))
+    await vi.waitFor(() => { expect(fetch).toHaveBeenCalledOnce() })
+
+    controller.abort()
+
+    await expect(consumption).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it('normalizes tool calls and request messages', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ id: 'c1', function: { name: 'lookup', arguments: '{"id":"1"}' } }] } }], usage: { total_tokens: 12 } }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1/', fetch })
@@ -136,6 +291,21 @@ describe('OpenAICompatibleAdapter', () => {
     const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch, maxRetries: 2, ...config })
 
     const error = await adapter.invoke(request, { signal }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ModelError)
+    expect(error).toMatchObject({ code: 'MODEL_PROVIDER_ERROR', retryable: false })
+    expect(String(error)).not.toContain('secret-marker')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['headers resolver', { headers: () => { throw new Error('header-secret-marker') } }],
+    ['request transform', { transformRequest: () => { throw new Error('request-secret-marker') } }],
+  ])('classifies a failing streaming %s as a safe non-retryable provider error', async (_label, config) => {
+    const fetch = vi.fn(async () => sseResponse(['data: [DONE]\n\n']))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch, maxRetries: 2, ...config })
+
+    const error = await consumeStream(adapter.stream!(request, { signal })).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ModelError)
     expect(error).toMatchObject({ code: 'MODEL_PROVIDER_ERROR', retryable: false })

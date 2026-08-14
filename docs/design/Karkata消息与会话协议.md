@@ -202,6 +202,8 @@ await agent.send('开始处理另一个客户')
 
 状态快照在运行期间可以展示 `committedHistory + runMessages`，但后续新运行只使用 `committedHistory`。
 
+启用流式回答时，当前模型步骤的半成品文本只进入 `AgentState.partialResponse`，不提前创建 AssistantMessage，也不进入 `runMessages`。只有 iterator 以有效 `LLMResponse` 完成、累计文本与最终内容一致且 AssistantMessage 通过结构校验后，Core 才把完整消息加入 `runMessages`。因此工具循环仍只处理完整 Tool Call，失败、中止、超时、非法 delta、输出超限或最终响应不一致都不会把半成品带入下一次模型请求。
+
 等待用户输入时，运行状态中的 `runMessages` 已包含发起 `ask_user` 的 AssistantMessage，暂时还没有对应 Tool Result。`HumanInputRequest` 是独立控制协议，包含请求权标识 `id` 和关联原 Tool Call 的 `callId`，自身不写入消息历史；只有 `respond(request.id, answer)` 接受有效回答后才生成模型可见的 Tool Result。若等待期间中止、超时或 dispose，整个 `runMessages` 仍被丢弃，不会留下未配对 Tool Call。
 
 若启用上下文预算，`CONTEXT_LIMIT_EXCEEDED` 和 `CONTEXT_ESTIMATION_ERROR` 与其他运行错误遵循相同原子提交规则：当前 `runMessages` 被丢弃，之前的 `committedHistory` 保留。`AgentState.contextUsage.usedTokens` 是独立的 UI 预算投影，可以保留最近一次有效预算检查值，不属于会话消息，也不会进入下一次模型请求。`clearHistory()` 清空消息并将其重置为 `0`。
@@ -215,6 +217,8 @@ await agent.send('开始处理另一个客户')
 - `error`、`aborted`、`TIMEOUT`、`CONTEXT_COMPACTION_ERROR` 和候选估算失败都丢弃候选，恢复原 `committedHistory`。
 
 `AgentState.contextUsage.usedTokens` 可先发布压缩前估算，再发布候选估算；终态保留最近一次有效值。历史消息仍遵循原子提交，压缩候选不会因为一次估算成功就提前进入终态历史。
+
+`AgentState.partialResponse` 同样是独立状态投影。它按当前 `runId` 和模型 `step` 标识，订阅者看到的是限频后的累计文本，而不是每个 Provider 原始 chunk。成功完成时，它与最终完整消息原子替换；模型进入下一工具步骤、运行失败、中止、超时、清空历史或销毁时被清理。它不参与历史压缩、持久化恢复或后续请求组装。
 
 这个设计避免将不完整的 assistant/tool 序列传给下一次 LLM 调用。它不代表工具副作用可以回滚；工具已经完成的外部操作仍然可能存在。
 
@@ -235,3 +239,4 @@ await agent.send('开始处理另一个客户')
 - `clearHistory()` 在运行期间不能改变正在使用的上下文。
 - Human-in-the-Loop 回答与原 Tool Call ID 配对，终止后的迟到回答不能进入历史。
 - 模型上下文的压缩或回滚不会让已由 UI Store 观察到的展示记录静默消失。
+- 流式半成品不会进入消息历史，终止后的迟到 delta 不能修改状态或下一次模型请求。

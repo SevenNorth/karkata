@@ -5,9 +5,22 @@ import { validateCommittedHistory } from './history.js'
 import { assembleSystemMessage, createInstructionResolverContext, PromptAssemblyError } from './prompt.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
 import { serializeToolOutput } from './toolOutput.js'
-import type { AgentConfig, AgentError, AgentMessage, AgentRequest, AgentRequestListener, AgentResult, AgentState, AgentStateListener, AssistantMessage, ContextCompactionContext, ContextEstimationContext, InitialTool, LLMRequest, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
+import type { AgentConfig, AgentError, AgentMessage, AgentRequest, AgentRequestListener, AgentResult, AgentState, AgentStateListener, AgentStreamingConfig, AssistantMessage, ContextCompactionContext, ContextEstimationContext, InitialTool, LLMRequest, LLMResponse, LLMStream, LLMStreamEvent, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
 
-interface Run { runId: string; controller: AbortController; termination: 'manual' | 'timeout' | 'dispose' | undefined; timer: ReturnType<typeof setTimeout>; step: number }
+interface StreamingProgress {
+  readonly chunks: string[]
+  length: number
+  lastPublishedAt: number | undefined
+  timer: ReturnType<typeof setTimeout> | undefined
+}
+interface Run {
+  runId: string
+  controller: AbortController
+  termination: 'manual' | 'timeout' | 'dispose' | undefined
+  timer: ReturnType<typeof setTimeout>
+  step: number
+  streamingProgress?: StreamingProgress
+}
 interface PendingHumanInput {
   readonly request: AgentRequest
   readonly runId: string
@@ -22,8 +35,21 @@ class ContextCompactionError extends Error {
   override readonly name = 'ContextCompactionError'
 }
 
+class StreamingResponseError extends Error {
+  override readonly name = 'StreamingResponseError'
+}
+
+const DEFAULT_STREAMING_CONFIG: Required<AgentStreamingConfig> = Object.freeze({
+  stateUpdateIntervalMs: 32,
+  maxOutputLength: 200_000,
+})
+
+type NormalizedAgentConfig = Omit<AgentConfig, 'streaming'>
+  & Required<Pick<AgentConfig, 'maxSteps' | 'timeoutMs' | 'maxToolResultLength' | 'maxInstructionsLength'>>
+  & { readonly streaming?: Required<AgentStreamingConfig> }
+
 export class Agent {
-  readonly #config: Required<Pick<AgentConfig, 'maxSteps' | 'timeoutMs' | 'maxToolResultLength' | 'maxInstructionsLength'>> & AgentConfig
+  readonly #config: NormalizedAgentConfig
   readonly #registry: ToolRegistry
   readonly #listeners = new Set<AgentStateListener>()
   readonly #requestListeners = new Set<AgentRequestListener>()
@@ -35,7 +61,7 @@ export class Agent {
   #state: AgentState = { status: 'idle', step: 0, messages: [], updatedAt: Date.now() }
 
   constructor(config: AgentConfig) {
-    const { tools = [], ...runtimeConfig } = config
+    const { tools = [], streaming, ...runtimeConfig } = config
     if (config.maxInstructionsLength !== undefined && (!Number.isFinite(config.maxInstructionsLength) || !Number.isInteger(config.maxInstructionsLength) || config.maxInstructionsLength < 0)) {
       throw new TypeError('maxInstructionsLength must be a non-negative finite integer')
     }
@@ -58,9 +84,31 @@ export class Agent {
         if (typeof compaction.compactHistory !== 'function') throw new TypeError('contextBudget.compaction.compactHistory must be a function')
       }
     }
+    if (streaming !== undefined) {
+      if (streaming === null || typeof streaming !== 'object' || Array.isArray(streaming)) {
+        throw new TypeError('streaming must be a configuration object')
+      }
+      if (typeof config.llm.stream !== 'function') throw new TypeError('llm.stream must be a function when streaming is enabled')
+      const { stateUpdateIntervalMs, maxOutputLength } = streaming
+      if (stateUpdateIntervalMs !== undefined && !isNonNegativeInteger(stateUpdateIntervalMs)) {
+        throw new TypeError('streaming.stateUpdateIntervalMs must be a non-negative finite integer')
+      }
+      if (maxOutputLength !== undefined && !isPositiveInteger(maxOutputLength)) {
+        throw new TypeError('streaming.maxOutputLength must be a positive finite integer')
+      }
+    }
     validateHumanInputConfig(config.humanInput)
     if (config.humanInput !== undefined) this.#assertNoReservedTool(tools.map((initial) => this.#normalizeInitialTool(initial).tool), true)
-    this.#config = { ...runtimeConfig, maxSteps: config.maxSteps ?? 20, timeoutMs: config.timeoutMs ?? 120_000, maxToolResultLength: config.maxToolResultLength ?? 20_000, maxInstructionsLength: config.maxInstructionsLength ?? 20_000 }
+    this.#config = {
+      ...runtimeConfig,
+      maxSteps: config.maxSteps ?? 20,
+      timeoutMs: config.timeoutMs ?? 120_000,
+      maxToolResultLength: config.maxToolResultLength ?? 20_000,
+      maxInstructionsLength: config.maxInstructionsLength ?? 20_000,
+      ...(streaming === undefined
+        ? {}
+        : { streaming: { ...DEFAULT_STREAMING_CONFIG, ...streaming } }),
+    }
     this.#registry = new ToolRegistry(tools.map((initial) => this.#normalizeInitialTool(initial)))
     this.#commit({
       messages: this.#history,
@@ -104,6 +152,7 @@ export class Agent {
       result: undefined,
       error: undefined,
       activeTool: undefined,
+      partialResponse: undefined,
       contextUsage: this.#config.contextBudget
         ? { maxTokens: this.#config.contextBudget.maxTokens, usedTokens: 0 }
         : undefined,
@@ -155,7 +204,9 @@ export class Agent {
             })
           }
         }
-        const response = await awaitWithAbort(Promise.resolve(this.#config.llm.invoke(request, { signal: run.controller.signal })), run.controller.signal)
+        const response = this.#config.streaming
+          ? await this.#invokeStream(run, request)
+          : await awaitWithAbort(Promise.resolve(this.#config.llm.invoke(request, { signal: run.controller.signal })), run.controller.signal)
         this.#ensureCurrent(run)
         this.#validateAssistant(response.message)
         this.#runMessages.push(response.message)
@@ -164,6 +215,13 @@ export class Agent {
           this.#history = [...effectiveHistory, ...this.#runMessages]; this.#runMessages = []
           const result: AgentResult = { status: 'completed', runId, content, steps: run.step }
           this.#finish(run, result); return result
+        }
+        if (this.#config.streaming) {
+          this.#commit({
+            step: run.step,
+            messages: [...this.#history, ...this.#runMessages],
+            partialResponse: undefined,
+          })
         }
         for (const call of response.message.toolCalls) {
           this.#ensureCurrent(run)
@@ -192,6 +250,9 @@ export class Agent {
       if (error instanceof ContextCompactionError) {
         return this.#fail(run, { code: 'CONTEXT_COMPACTION_ERROR', message: 'Context compaction failed', retryable: false })
       }
+      if (error instanceof StreamingResponseError) {
+        return this.#fail(run, { code: 'MODEL_INVALID_RESPONSE', message: error.message, retryable: false })
+      }
       if (error instanceof ModelError) {
         return this.#fail(run, {
           code: error.code,
@@ -210,7 +271,7 @@ export class Agent {
       if (this.#run) this.#terminate(this.#run, 'dispose')
       await Promise.resolve()
       this.#history = []; this.#runMessages = []; this.#pendingHumanInput = undefined; this.#registry.clear()
-      this.#commit({ status: 'disposed', runId: undefined, step: 0, messages: [], activeTool: undefined, result: undefined, error: undefined })
+      this.#commit({ status: 'disposed', runId: undefined, step: 0, messages: [], activeTool: undefined, partialResponse: undefined, result: undefined, error: undefined })
       this.#listeners.clear()
       this.#requestListeners.clear()
     })()
@@ -272,6 +333,130 @@ export class Agent {
     }
   }
 
+  async #invokeStream(run: Run, request: LLMRequest): Promise<LLMResponse> {
+    const stream = this.#config.llm.stream
+    const config = this.#config.streaming
+    if (!stream || !config) throw new StreamingResponseError('Model stream is unavailable')
+    let iterator: LLMStream | undefined
+    let completed = false
+    const progress: StreamingProgress = {
+      chunks: [],
+      length: 0,
+      lastPublishedAt: undefined,
+      timer: undefined,
+    }
+    run.streamingProgress = progress
+    try {
+      iterator = stream.call(this.#config.llm, request, { signal: run.controller.signal })
+      if (!iterator || typeof iterator.next !== 'function' || typeof iterator[Symbol.asyncIterator] !== 'function') {
+        throw new StreamingResponseError('Model stream returned an invalid iterator')
+      }
+      while (true) {
+        const result = await awaitWithAbort(
+          Promise.resolve().then(() => iterator!.next()),
+          run.controller.signal,
+        )
+        this.#ensureCurrent(run)
+        if (!result || typeof result !== 'object' || typeof result.done !== 'boolean') {
+          throw new StreamingResponseError('Model stream returned an invalid iterator result')
+        }
+        if (result.done) {
+          const response = this.#validateStreamingResponse(result.value, progress, config.maxOutputLength)
+          completed = true
+          this.#clearStreamingProgress(run, progress)
+          return response
+        }
+        this.#acceptStreamEvent(run, progress, result.value, config)
+      }
+    } finally {
+      if (!completed && iterator) this.#releaseStream(iterator)
+      if (!completed) this.#clearStreamingProgress(run, progress)
+    }
+  }
+
+  #acceptStreamEvent(
+    run: Run,
+    progress: StreamingProgress,
+    event: LLMStreamEvent,
+    config: Required<AgentStreamingConfig>,
+  ): void {
+    if (!event || typeof event !== 'object' || event.type !== 'text_delta'
+      || typeof event.delta !== 'string' || event.delta.length === 0) {
+      throw new StreamingResponseError('Model stream returned an invalid text delta')
+    }
+    progress.length += event.delta.length
+    if (progress.length > config.maxOutputLength) {
+      throw new StreamingResponseError('Model response exceeded the configured streaming output limit')
+    }
+    progress.chunks.push(event.delta)
+    this.#schedulePartialResponse(run, progress, config.stateUpdateIntervalMs)
+  }
+
+  #validateStreamingResponse(
+    value: unknown,
+    progress: StreamingProgress,
+    maxOutputLength: number,
+  ): LLMResponse {
+    if (!value || typeof value !== 'object' || !('message' in value)) {
+      throw new StreamingResponseError('Model stream ended without a valid response')
+    }
+    const response = value as LLMResponse
+    const message = response.message as AssistantMessage | undefined
+    if (!message || typeof message !== 'object' || message.role !== 'assistant'
+      || (message.content !== null && typeof message.content !== 'string')) {
+      throw new StreamingResponseError('Model stream ended without a valid response')
+    }
+    const content = message.content ?? ''
+    if (content.length > maxOutputLength) {
+      throw new StreamingResponseError('Model response exceeded the configured streaming output limit')
+    }
+    if (progress.length > 0 && progress.chunks.join('') !== content) {
+      throw new StreamingResponseError('Model stream text did not match the final response')
+    }
+    return response
+  }
+
+  #schedulePartialResponse(run: Run, progress: StreamingProgress, intervalMs: number): void {
+    const now = Date.now()
+    if (progress.lastPublishedAt === undefined || intervalMs === 0
+      || now - progress.lastPublishedAt >= intervalMs) {
+      this.#publishPartialResponse(run, progress)
+      return
+    }
+    if (progress.timer !== undefined) return
+    const delay = Math.max(0, intervalMs - (now - progress.lastPublishedAt))
+    progress.timer = setTimeout(() => {
+      progress.timer = undefined
+      if (this.#run !== run || run.controller.signal.aborted || run.streamingProgress !== progress) return
+      this.#publishPartialResponse(run, progress)
+    }, delay)
+  }
+
+  #publishPartialResponse(run: Run, progress: StreamingProgress): void {
+    this.#ensureCurrent(run)
+    progress.lastPublishedAt = Date.now()
+    this.#commit({
+      partialResponse: {
+        runId: run.runId,
+        step: run.step,
+        content: progress.chunks.join(''),
+      },
+    })
+  }
+
+  #clearStreamingProgress(run: Run, progress: StreamingProgress): void {
+    if (progress.timer !== undefined) clearTimeout(progress.timer)
+    progress.timer = undefined
+    if (run.streamingProgress === progress) delete run.streamingProgress
+  }
+
+  #releaseStream(iterator: LLMStream): void {
+    try {
+      const cleanup = iterator.return?.()
+      if (cleanup) void Promise.resolve(cleanup).catch(() => undefined)
+    } catch { /* Iterator cleanup cannot delay or replace the run result. */ }
+  }
+
   async #executeTool(run: Run, registration: ToolRegistration, callId: string, input: unknown): Promise<ToolResultMessage> {
     if (!this.#registry.isCurrent(registration)) return this.#toolError(callId, registration.tool.name, 'TOOL_CHANGED', 'Tool changed before execution')
     const parsed = registration.tool.inputSchema.safeParse(input)
@@ -305,9 +490,10 @@ export class Agent {
   #fail(run: Run, error: AgentError): AgentResult { const result: AgentResult = { status: 'error', runId: run.runId, error, steps: run.step }; this.#finish(run, result); return result }
   #finish(run: Run, result: AgentResult): void {
     clearTimeout(run.timer); if (this.#run?.runId === run.runId) this.#run = undefined
+    if (run.streamingProgress) this.#clearStreamingProgress(run, run.streamingProgress)
     this.#runMessages = []; if (this.#pendingHumanInput?.runId === run.runId) this.#pendingHumanInput = undefined
     if (run.termination === 'dispose') return
-    this.#commit({ status: result.status, runId: run.runId, step: run.step, messages: this.#history, activeTool: undefined, result, error: result.status === 'error' ? result.error : undefined })
+    this.#commit({ status: result.status, runId: run.runId, step: run.step, messages: this.#history, activeTool: undefined, partialResponse: undefined, result, error: result.status === 'error' ? result.error : undefined })
   }
   #commit(patch: Partial<AgentState>): void { this.#state = structuredClone({ ...this.#state, ...patch, updatedAt: Date.now() }); for (const listener of this.#listeners) this.#notifyOne(listener) }
   #notifyOne(listener: AgentStateListener): void { try { listener(this.#state) } catch { /* Subscribers are isolated. */ } }
@@ -347,4 +533,8 @@ function freezeRequest(request: LLMRequest): LLMRequest {
 
 function isPositiveInteger(value: number): boolean {
   return Number.isFinite(value) && Number.isInteger(value) && value > 0
+}
+
+function isNonNegativeInteger(value: number): boolean {
+  return Number.isFinite(value) && Number.isInteger(value) && value >= 0
 }
