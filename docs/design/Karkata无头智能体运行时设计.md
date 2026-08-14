@@ -230,7 +230,7 @@ const agent = createAgent({
 
 Core 始终提供不可覆盖的通用默认提示词。`systemPrompt` 是构造时确定的静态应用增强；`resolveInstructions` 是每次调用模型前执行的同步或异步指导函数。Resolver 只返回一段可信字符串，不需要返回 scope 结构；宿主可从传入的当前普通注册工具信息自行判断页面、模块或业务上下文。`ask_user` 等 Runtime 特殊能力由对应配置表达，不伪造用户 scope，也不进入 Resolver 的 Registry 工具投影。
 
-默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此未来 UI 不会把内部提示词作为对话消息回显。
+默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此 `@karkata/ui` 不会把内部提示词作为对话消息回显。
 
 `contextBudget` 是可选的调用前输入预算。`maxTokens` 由使用方根据模型能力和输出预留确定；`estimateTokens` 接收即将发送给 Adapter 的完整冻结 `LLMRequest` 以及当前 `runId`、`step` 和 `AbortSignal`。Core 不绑定 tokenizer，也不通过 Provider `/models` 猜测上限。
 
@@ -248,6 +248,8 @@ interface Agent {
   dispose(): Promise<void>
 
   subscribe(listener: AgentStateListener): () => void
+  subscribeRequests(listener: AgentRequestListener): () => void
+  respond(requestId: string, answer: string): boolean
 
   registerTool(tool: Tool, options?: { scope?: string }): () => void
   unregisterTool(name: string, options?: { scope?: string }): boolean
@@ -579,23 +581,31 @@ agent.registerTool(javascriptTool)
 
 ## 13. 前端框架无关 UI
 
-Core 首先通过 `send()`、`subscribe()`、`subscribeRequests()`、`respond()` 和 `abort()` 提供框架无关的交互契约。React、Vue 或原生页面都可直接基于该契约构建 UI。
-
-可选通用 UI 应当作为独立包在后续实现：
+Core 通过 `send()`、`subscribe()`、`subscribeRequests()`、`respond()` 和 `abort()` 提供 Headless 交互契约。可选的 `@karkata/ui` 包在 Core 之上提供无 DOM 的 `AgentUIStore` 和浏览器 Web Component：
 
 ```text
 @karkata/core    # Headless Runtime
-@karkata/ui      # 可选 Web Component
+@karkata/ui      # 框架无关 Store
+@karkata/ui/web-component  # 可选 Web Component
 ```
 
-Web Component 只依赖 Agent 的公开契约：
+React、Vue 和原生 UI 通过 `createAgentUIStore(agent)` 订阅 `AgentUIState`，并统一调用 `store.submit(input)`。Store 将 Core 的状态订阅和请求订阅组合成一个 composer：普通状态为 `message`，等待用户输入时为带 `requestId`、`callId` 和问题正文的 `response`。原始 `send()` 在等待回答期间仍未结束，因此 Store 不使用覆盖整个 Promise 的全局提交锁；Core 并发门禁仍保证同一 Agent 最多运行一次。
+
+`AgentState.messages` 是当前模型上下文快照：成功的历史压缩可以替换旧消息，失败或中止会回滚本轮消息。它不是追加式 UI 历史。`AgentUIStore` 从绑定时开始维护独立的会话期展示记录，保留已观察到但从模型上下文消失的交互；绑定时已有的非空内容只能标记为 `context_snapshot`、`runStatus: 'unknown'` 和 `historyCompleteness: 'context_only'`，不能冒充完整 transcript。`clearHistory()` 是显式清空边界，Store items 也不是 checkpoint 或持久化格式。
+
+Human-in-the-Loop 问题和被接受的回答在 Store 中表现为普通 Assistant/用户消息，并以 `source: 'human_input'` 保留来源。其他 Tool Call/Result 只公开 `name`、`callId` 和状态，不公开原始输入或结果。详细契约见 [Karkata UI 交互契约](./Karkata%20UI%20交互契约.md)。
+
+Web Component 显式注册且导入阶段不访问 DOM：
 
 ```ts
+import { defineKarkataPanel } from '@karkata/ui/web-component'
+
+defineKarkataPanel()
 const panel = document.querySelector('karkata-panel')
 panel.agent = agent
 ```
 
-首版不实现 UI，但需要保证状态快照包含渲染通用 UI 所需的信息。
+`panel.agent` 由面板创建并持有 Store，元素断开时释放它。需要跨挂载保留展示记录时，宿主应创建外部 Store 并设置 `panel.store = store`，同时负责最终 `store.dispose()`。
 
 ### 13.1 等待用户输入
 
@@ -609,7 +619,7 @@ const unsubscribe = agent.subscribeRequests((request) => {
 })
 ```
 
-请求是冻结的 `{ type: 'human_input', id, runId, step, prompt }` 快照。晚订阅者会立即收到当前未决请求；监听器异常彼此隔离。`respond()` 只接受当前 ID 的非空字符串一次，有效回答成为原 Tool Call 的成功 Tool Result，并受 `maxToolResultLength` 限制。错误 ID、重复或终止后的迟到回答返回 `false`，不会恢复旧运行。
+请求是冻结的 `{ type: 'human_input', id, callId, runId, step, prompt }` 快照。`id` 标识一次只能回答一次的宿主请求，`callId` 关联模型发出的原 `ask_user` Tool Call；`respond()` 仍使用请求 `id`。晚订阅者会立即收到当前未决请求；监听器异常彼此隔离。`respond()` 只接受当前 ID 的非空字符串一次，有效回答成为原 Tool Call 的成功 Tool Result，并受 `maxToolResultLength` 限制。错误 ID、重复或终止后的迟到回答返回 `false`，不会恢复旧运行。
 
 `ask_user` 仅在显式启用时为保留名称，不进入普通 Tool Registry、scope 或 `listTools()`。首版不提供结构化表单或独立请求超时，等待受整次运行的 `timeoutMs`、`abort()` 和 `dispose()` 控制。模型主动询问不是安全边界；敏感工具仍需由宿主执行强制授权。
 
@@ -728,19 +738,19 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 
 ### 阶段三：生态能力
 
-- 宿主注入的历史摘要与裁剪策略。
-- Human-in-the-Loop 用户输入协议。
-- 基于 Web Component 的可选 `@karkata/ui`。
-- checkpoint 与可插拔持久化。
-- 按需提供原生 Provider 不透明 compaction item 适配。
+- 已完成：宿主注入的历史摘要与裁剪策略。
+- 已完成：Human-in-the-Loop 用户输入协议。
+- 已完成：框架无关 Store 与基于 Web Component 的可选 `@karkata/ui`。
+- 后续：checkpoint 与可插拔持久化。
+- 按需：原生 Provider 不透明 compaction item 适配。
 
 ## 17. 待后续确定的决策
 
 以下问题不阻塞阶段一，但实现对应能力前需要单独决策：
 
 - 公开 Schema 类型是绑定 Zod，还是定义更通用的 Standard Schema 契约。
-- 状态快照是否包含完整历史，或只包含渲染所需的消息投影。
-- JavaScript 工具的首个版本是否与 Core 同时发布。
+- checkpoint 的版本、恢复校验与外部存储接口。
+- 是否为特定 Provider 增加不透明 compaction item 适配。
 
 ## 18. 结论
 

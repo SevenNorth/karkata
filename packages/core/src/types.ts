@@ -77,6 +77,7 @@ export type HumanInputConfig = Readonly<Record<string, never>>
 export interface HumanInputRequest {
   readonly type: 'human_input'
   readonly id: string
+  readonly callId: string
   readonly runId: string
   readonly step: number
   readonly prompt: string

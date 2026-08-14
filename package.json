@@ -25,10 +25,13 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --build --pretty false && tsc -p packages/core/tsconfig.type-tests.json --pretty false",
     "check": "npm run typecheck && npm test && npm run build",
-    "clean": "node scripts/clean.mjs"
+    "clean": "node scripts/clean.mjs",
+    "demo:ui": "npm run build -w @karkata/ui && node examples/ui-demo/server.mjs",
+    "test:ui-demo": "node --test examples/ui-demo/demo-agent.test.mjs examples/ui-demo/server.test.mjs"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.18",
+    "happy-dom": "^20.11.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

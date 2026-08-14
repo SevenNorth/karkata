@@ -15,10 +15,11 @@ export function parseHumanInput(value: unknown): ReturnType<typeof HUMAN_INPUT_S
   return HUMAN_INPUT_SCHEMA.safeParse(value)
 }
 
-export function createHumanInputRequest(runId: string, step: number, prompt: string): AgentRequest {
+export function createHumanInputRequest(runId: string, step: number, callId: string, prompt: string): AgentRequest {
   return Object.freeze({
     type: 'human_input',
     id: globalThis.crypto.randomUUID(),
+    callId,
     runId,
     step,
     prompt,

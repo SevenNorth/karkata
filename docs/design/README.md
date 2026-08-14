@@ -10,6 +10,7 @@
 - [Karkata 消息与会话协议](./Karkata消息与会话协议.md)：规范化消息、Tool Call 关联、会话提交与历史语义。
 - [Karkata 工具注册与版本一致性](./Karkata工具注册与版本一致性.md)：工具注册、作用域、热插拔、快照与版本竞态。
 - [Karkata 任务取消与超时协议](./Karkata任务取消与超时协议.md)：取消竞争、超时、迟到结果隔离与销毁语义。
+- [Karkata UI 交互契约](./Karkata%20UI%20交互契约.md)：UI Store、展示记录、统一输入路由与 Web Component 集成。
 
 ## 维护约定
 

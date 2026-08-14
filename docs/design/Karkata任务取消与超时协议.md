@@ -144,7 +144,7 @@ if (agent.currentRun?.runId !== run.runId || run.signal.aborted) {
 
 这个 `runId` 门禁还可以防止上一次运行的迟到回调污染已经开始的新运行。
 
-Human-in-the-Loop 的 `respond(requestId, answer)` 是额外的同步线性化点：只有请求 ID 与当前运行的唯一未决请求匹配，且 signal 尚未终止时才接受一次。取消、超时或 dispose 完成清理后，同一请求 ID 永久返回 `false`。用户等待不创建独立计时器，继续受整次运行的 `timeoutMs` 约束。
+Human-in-the-Loop 的 `respond(requestId, answer)` 是额外的同步线性化点：只有请求 ID 与当前运行的唯一未决请求匹配，且 signal 尚未终止时才接受一次。公开请求中的 `callId` 只用于关联原 `ask_user` Tool Call，不替代 `requestId` 的回答权。取消、超时或 dispose 完成清理后，同一请求 ID 永久返回 `false`。用户等待不创建独立计时器，继续受整次运行的 `timeoutMs` 约束。
 
 ## 7. 状态提交顺序
 

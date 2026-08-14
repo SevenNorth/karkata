@@ -289,7 +289,7 @@ export class Agent {
   async #requestHumanInput(run: Run, callId: string, input: unknown): Promise<ToolResultMessage> {
     const parsed = parseHumanInput(input)
     if (!parsed.success) return this.#toolError(callId, HUMAN_INPUT_TOOL_NAME, 'TOOL_INVALID_INPUT', parsed.error.message)
-    const request = createHumanInputRequest(run.runId, run.step, parsed.data.question)
+    const request = createHumanInputRequest(run.runId, run.step, callId, parsed.data.question)
     const answer = await awaitWithAbort(new Promise<string>((resolve) => {
       this.#pendingHumanInput = { request, runId: run.runId, resolve }
       this.#commit({ status: 'waiting_for_input', step: run.step, messages: [...this.#history, ...this.#runMessages], activeTool: undefined })

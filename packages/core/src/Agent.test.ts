@@ -844,10 +844,11 @@ describe('Agent', () => {
     expect(llm.requests[0]!.tools.map(({ name }) => name)).toEqual(['ask_user'])
     expect(agent.state).toMatchObject({ status: 'waiting_for_input', step: 1 })
     expect(requests).toHaveLength(1)
-    const request = requests[0] as { id: string; type: string; runId: string; step: number; prompt: string }
+    const request = requests[0] as { id: string; type: string; callId: string; runId: string; step: number; prompt: string }
     expect(request).toEqual({
       type: 'human_input',
       id: expect.any(String),
+      callId: 'call-1',
       runId: agent.state.runId,
       step: 1,
       prompt: 'Which account should I use?',
@@ -952,15 +953,18 @@ describe('Agent', () => {
       message('done'),
     ])
     const agent = new Agent({ llm, humanInput: {} })
-    const prompts: string[] = []
+    const requests: Array<{ callId: string; prompt: string }> = []
     agent.subscribeRequests((request) => {
-      prompts.push(request.prompt)
-      expect(agent.respond(request.id, prompts.length === 1 ? 'One' : 'Two')).toBe(true)
+      requests.push({ callId: request.callId, prompt: request.prompt })
+      expect(agent.respond(request.id, requests.length === 1 ? 'One' : 'Two')).toBe(true)
     })
 
     await expect(agent.send('ask twice')).resolves.toMatchObject({ status: 'completed' })
 
-    expect(prompts).toEqual(['First?', 'Second?'])
+    expect(requests).toEqual([
+      { callId: 'call-1', prompt: 'First?' },
+      { callId: 'call-2', prompt: 'Second?' },
+    ])
     expect(llm.requests[1]!.messages.slice(-2)).toEqual([
       { role: 'tool', callId: 'call-1', name: 'ask_user', content: '{"answer":"One"}', isError: false },
       { role: 'tool', callId: 'call-2', name: 'ask_user', content: '{"answer":"Two"}', isError: false },
