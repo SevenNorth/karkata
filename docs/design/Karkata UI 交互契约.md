@@ -35,9 +35,13 @@ store.dispose()
 
 普通消息使用 `source: 'conversation'`。Human-in-the-Loop 问题和被 Store 确认接受的回答作为普通 Assistant/用户消息出现，同时使用 `source: 'human_input'`、`requestId` 和 `callId` 保留协议关联。问题还包含 `pending | answered | cancelled` 状态。
 
+所有 message 条目都有必填 `contentStatus: 'complete' | 'streaming' | 'incomplete'`。普通用户消息、上下文快照、Human-in-the-Loop 问答和已验证 AssistantMessage 为 `complete`；当前 Core partial 为 `streaming`；失败、中止或 dispose 后保留的已显示草稿为 `incomplete`。`contentStatus` 与 `runStatus` 正交：前者描述文本是否完整，后者描述所属整次运行的结果。
+
+Store 只接受与当前活动状态匹配的 `partialResponse.runId + step`。同一步累计内容更新保持 item ID 和列表位置不变；若 Core 限频使最后可见 partial 只是最终文本前缀，完整响应到达时 Store 会原位补齐并转为 `complete`。带文本的 Tool Call 步骤同样先完成消息再投影工具条目，下一模型步骤使用新的 Assistant item。非累计回退、不匹配或终止后的迟到 partial 不得改写已显示文本。
+
 Store 从空上下文开始观察时，`historyCompleteness` 为 `session`。这只表示本 Store 看到了当前会话从空上下文开始的变化，不表示内容已持久化。若创建 Store 时 Agent 已有消息或正在运行，已有内容标记为 `source: 'context_snapshot'`、`runStatus: 'unknown'` 和 `historyCompleteness: 'context_only'`；Store 无法恢复压缩前、绑定前或刷新前已丢失的对话边界。
 
-绑定后观察到的条目不会仅因模型历史被压缩，或当前运行失败、中止而被删除；它们会保留并更新 `runStatus`。外部 `agent.clearHistory()` 产生的空闲空历史会清空展示记录。Agent `dispose()` 只冻结并禁用 Store，不伪装成一次历史清空。
+绑定后观察到的条目不会仅因模型历史被压缩，或当前运行失败、中止而被删除；它们会保留并更新 `runStatus`，当前 streaming 文本同时转为 `incomplete`。外部 `agent.clearHistory()` 产生的空闲空历史会清空展示记录。Agent `dispose()` 只冻结并禁用 Store，不伪装成一次历史清空。
 
 `AgentUIItem` 是运行时展示 API，不是可反序列化的 checkpoint 格式。需要跨刷新或跨进程恢复时，必须使用后续版本化的持久化契约。
 
@@ -72,6 +76,10 @@ const state = useSyncExternalStore(
   (listener) => store.subscribe(listener),
   () => store.getSnapshot(),
   () => store.getSnapshot(),
+)
+
+const isStreaming = state.items.some(
+  (item) => item.type === 'message' && item.contentStatus === 'streaming',
 )
 
 async function submit(text: string) {
@@ -128,7 +136,7 @@ store.dispose()
 
 后赋值的 `agent` 或 `store` 替换前一种绑定。外部 Store 在面板断开或替换时只解除 UI 订阅，不由组件销毁。
 
-组件使用一个 textarea：`message` 与 `response` composer 只改变输入语义和标签。Enter 提交，Shift+Enter 换行，输入法 composition 期间 Enter 不提交。失效回答保留输入；活动运行可以调用停止按钮转发 `abort()`。所有内容以纯文本渲染，不解释 HTML 或 Markdown。
+组件使用一个 textarea：`message` 与 `response` composer 只改变输入语义和标签。Enter 提交，Shift+Enter 换行，输入法 composition 期间 Enter 不提交。失效回答保留输入；活动运行可以调用停止按钮转发 `abort()`。所有内容以纯文本渲染，不解释 HTML 或 Markdown。流式更新复用同一消息 DOM 元素，以克制的光标反馈表示生成中，并在 reduced-motion 下关闭动画；未完成文本只使用视觉边界提示，不改写模型正文。
 
 面板默认面向终端用户：运行状态、问题状态和工具状态先映射为自然文案，不直接展示 `waiting_for_input` 等协议枚举。工具条目和活动工具名默认隐藏；诊断界面可设置 `panel.showTools = true` 开启，该属性只改变 DOM 投影，不改变 Store 快照。没有可见条目时显示可配置空状态。
 
@@ -148,7 +156,7 @@ store.dispose()
 - `--karkata-accent`
 - `--karkata-danger`
 
-稳定 parts 包括 `panel`、`header`、`status`、`context`、`messages`、`empty`、`message`、`message-user`、`message-assistant`、`tool`、`error`、`retry`、`composer`、`submit` 和 `abort`。长文本必须换行；新增条目只在用户已接近列表底部时自动滚动。
+稳定 parts 包括 `panel`、`header`、`status`、`context`、`messages`、`empty`、`message`、`message-user`、`message-assistant`、`message-streaming`、`message-incomplete`、`tool`、`error`、`retry`、`composer`、`submit` 和 `abort`。消息元素同时暴露 `data-content-status`。长文本必须换行；新增条目或流式内容增长只在用户已接近列表底部时自动滚动。
 
 ## 8. 安全不变量
 
@@ -157,3 +165,4 @@ store.dispose()
 - Human-in-the-Loop 是交互协议，不是授权边界；敏感工具仍由宿主执行权限检查。
 - 多个 Store 可以竞争同一请求，只有 `respond()` 返回 `true` 的一方记录用户回答；其他视图必须收敛到最新状态。
 - 旧 Agent、旧 Store、已终止运行或失效请求的迟到结果不得修改当前 composer、输入草稿或展示记录。
+- partial 只形成 UI message item，不进入模型上下文、历史、结果或持久化；失败保留项必须标为 `incomplete`，不能冒充完整 AssistantMessage。

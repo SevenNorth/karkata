@@ -48,6 +48,169 @@ class FakeAgent implements AgentUIAdapter {
 }
 
 describe('createAgentUIStore', () => {
+  it('projects cumulative partial text with a stable item id and promotes it on completion', () => {
+    const agent = new FakeAgent()
+    const store = createAgentUIStore(agent)
+    const prompt = user('Say hello')
+
+    agent.publishState({ status: 'running', runId: 'run-stream', step: 0, messages: [prompt] })
+    agent.publishState({
+      step: 1,
+      partialResponse: { runId: 'run-stream', step: 1, content: 'Hel' },
+    })
+    const first = store.getSnapshot().items.at(-1)
+    expect(first).toMatchObject({
+      type: 'message', role: 'assistant', source: 'conversation', runId: 'run-stream',
+      runStatus: 'active', contentStatus: 'streaming', content: 'Hel',
+    })
+
+    agent.publishState({
+      partialResponse: { runId: 'run-stream', step: 1, content: 'Hello' },
+    })
+    expect(store.getSnapshot().items.at(-1)).toMatchObject({ id: first?.id, content: 'Hello' })
+
+    agent.publishState({
+      partialResponse: { runId: 'run-stream', step: 1, content: 'He' },
+    })
+    expect(store.getSnapshot().items.at(-1)).toMatchObject({ id: first?.id, content: 'Hello' })
+
+    agent.publishState({
+      status: 'completed', step: 1, messages: [prompt, assistant('Hello!')], partialResponse: undefined,
+      result: { status: 'completed', runId: 'run-stream', content: 'Hello!', steps: 1 },
+    })
+
+    expect(store.getSnapshot().items).toEqual([
+      expect.objectContaining({ role: 'user', content: 'Say hello', contentStatus: 'complete' }),
+      expect.objectContaining({
+        id: first?.id, role: 'assistant', content: 'Hello!',
+        contentStatus: 'complete', runStatus: 'completed',
+      }),
+    ])
+  })
+
+  it('completes a streamed tool step in place and creates a separate item for the next model step', () => {
+    const agent = new FakeAgent()
+    const store = createAgentUIStore(agent)
+    const prompt = user('Inspect order')
+    const calling: AgentMessage = {
+      role: 'assistant', content: 'Checking order',
+      toolCalls: [{ callId: 'call-stream', name: 'lookup', input: { secret: true } }],
+    }
+    const toolResult: AgentMessage = {
+      role: 'tool', callId: 'call-stream', name: 'lookup', content: 'private', isError: false,
+    }
+
+    agent.publishState({ status: 'running', runId: 'run-tools-stream', step: 0, messages: [prompt] })
+    agent.publishState({
+      step: 1,
+      partialResponse: { runId: 'run-tools-stream', step: 1, content: 'Checking order' },
+    })
+    const firstStepId = store.getSnapshot().items.at(-1)?.id
+    agent.publishState({ messages: [prompt, calling], partialResponse: undefined })
+
+    expect(store.getSnapshot().items).toEqual([
+      expect.objectContaining({ role: 'user', contentStatus: 'complete' }),
+      expect.objectContaining({ id: firstStepId, content: 'Checking order', contentStatus: 'complete' }),
+      expect.objectContaining({ type: 'tool', callId: 'call-stream', status: 'pending' }),
+    ])
+
+    agent.publishState({ messages: [prompt, calling, toolResult] })
+    agent.publishState({
+      step: 2,
+      partialResponse: { runId: 'run-tools-stream', step: 2, content: 'Order is ready' },
+    })
+    const secondStepId = store.getSnapshot().items.at(-1)?.id
+    expect(secondStepId).not.toBe(firstStepId)
+
+    agent.publishState({
+      status: 'completed', messages: [prompt, calling, toolResult, assistant('Order is ready')],
+      partialResponse: undefined,
+      result: { status: 'completed', runId: 'run-tools-stream', content: 'Order is ready', steps: 2 },
+    })
+
+    expect(store.getSnapshot().items.filter((item) => item.type === 'message' && item.role === 'assistant')).toEqual([
+      expect.objectContaining({ id: firstStepId, content: 'Checking order', contentStatus: 'complete' }),
+      expect.objectContaining({ id: secondStepId, content: 'Order is ready', contentStatus: 'complete' }),
+    ])
+    expect(JSON.stringify(store.getSnapshot().items)).not.toContain('private')
+    expect(JSON.stringify(store.getSnapshot().items)).not.toContain('secret')
+  })
+
+  it.each([
+    ['error', { status: 'error' as const, result: {
+      status: 'error' as const, runId: 'run-incomplete', steps: 1,
+      error: { code: 'MODEL_ERROR', message: 'failed', retryable: false },
+    }, error: { code: 'MODEL_ERROR', message: 'failed', retryable: false } }],
+    ['aborted', { status: 'aborted' as const, result: {
+      status: 'aborted' as const, runId: 'run-incomplete', steps: 1,
+    } }],
+  ])('retains visible partial text as incomplete after %s', (_label, terminal) => {
+    const agent = new FakeAgent()
+    const store = createAgentUIStore(agent)
+    const prompt = user('Start')
+    agent.publishState({ status: 'running', runId: 'run-incomplete', step: 0, messages: [prompt] })
+    agent.publishState({
+      step: 1,
+      partialResponse: { runId: 'run-incomplete', step: 1, content: 'Visible draft' },
+    })
+
+    agent.publishState({ ...terminal, messages: [], partialResponse: undefined })
+
+    expect(store.getSnapshot().items.at(-1)).toMatchObject({
+      role: 'assistant', content: 'Visible draft', contentStatus: 'incomplete', runStatus: terminal.status,
+    })
+  })
+
+  it('retains a streaming draft as incomplete when the Agent is disposed and clears it only with history', () => {
+    const agent = new FakeAgent()
+    const store = createAgentUIStore(agent)
+    agent.publishState({ status: 'running', runId: 'run-dispose-stream', step: 0, messages: [user('Start')] })
+    agent.publishState({
+      step: 1,
+      partialResponse: { runId: 'run-dispose-stream', step: 1, content: 'Visible draft' },
+    })
+
+    agent.publishState({
+      status: 'disposed', runId: undefined, step: 0, messages: [], partialResponse: undefined,
+    })
+    expect(store.getSnapshot().items.at(-1)).toMatchObject({
+      content: 'Visible draft', contentStatus: 'incomplete', runStatus: 'aborted',
+    })
+
+    agent.publishState({ status: 'idle', runId: undefined, step: 0, messages: [] })
+    expect(store.getSnapshot().items).toEqual([])
+  })
+
+  it('projects a matching partial when bound mid-run and ignores stale or terminal partial state', () => {
+    const agent = new FakeAgent()
+    agent.state = {
+      status: 'running', runId: 'run-bound', step: 1, messages: [user('Existing request')],
+      partialResponse: { runId: 'run-bound', step: 1, content: 'Already streaming' }, updatedAt: 2,
+    }
+    const store = createAgentUIStore(agent)
+    expect(store.getSnapshot()).toMatchObject({ historyCompleteness: 'context_only' })
+    expect(store.getSnapshot().items).toEqual([
+      expect.objectContaining({ source: 'context_snapshot', content: 'Existing request', contentStatus: 'complete' }),
+      expect.objectContaining({ source: 'conversation', content: 'Already streaming', contentStatus: 'streaming' }),
+    ])
+    const streamingId = store.getSnapshot().items.at(-1)?.id
+
+    agent.publishState({
+      status: 'completed', messages: [user('Existing request'), assistant('Already streaming')],
+      partialResponse: undefined,
+      result: { status: 'completed', runId: 'run-bound', content: 'Already streaming', steps: 1 },
+    })
+    expect(store.getSnapshot().items.at(-1)).toMatchObject({
+      id: streamingId, contentStatus: 'complete', runStatus: 'completed',
+    })
+
+    const beforeStale = store.getSnapshot().items
+    agent.publishState({
+      partialResponse: { runId: 'old-run', step: 1, content: 'too late' },
+    })
+    expect(store.getSnapshot().items).toEqual(beforeStale)
+  })
+
   it('creates a stable safe snapshot from the synchronously replayed Agent state', () => {
     const agent = new FakeAgent()
     const store = createAgentUIStore(agent)

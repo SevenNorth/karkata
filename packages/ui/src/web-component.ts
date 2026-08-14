@@ -300,8 +300,10 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
           element.className = `tool tool-${item.status}`
           element.textContent = `${item.name} \u00b7 ${toolStatusLabel(item.status, labels)}`
         } else {
-          element.setAttribute('part', `message message-${item.role}`)
-          element.className = `message message-${item.role} source-${item.source}`
+          const statusPart = item.contentStatus === 'complete' ? '' : ` message-${item.contentStatus}`
+          element.setAttribute('part', `message message-${item.role}${statusPart}`)
+          element.className = `message message-${item.role} source-${item.source} content-${item.contentStatus}`
+          element.dataset.contentStatus = item.contentStatus
           if (item.source === 'context_snapshot') {
             const context = this.ownerDocument.createElement('span')
             context.className = 'context-label'
@@ -499,8 +501,24 @@ const PANEL_STYLES = `
 
 .message-user { align-self: flex-end; border-color: color-mix(in srgb, var(--karkata-accent) 35%, transparent); }
 .message-assistant { align-self: flex-start; }
+.content-streaming .message-content::after {
+  content: '';
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.9rem;
+  margin-left: 0.2rem;
+  vertical-align: -0.1rem;
+  border-right: 2px solid currentColor;
+  animation: karkata-caret 0.9s steps(1, end) infinite;
+}
+.content-incomplete { border-color: color-mix(in srgb, var(--karkata-danger) 45%, transparent); }
 .source-context_snapshot { border-style: dashed; color: var(--karkata-muted); }
 .context-label, .request-status { display: block; margin-bottom: 0.2rem; color: var(--karkata-muted); font-size: 0.75rem; }
+
+@keyframes karkata-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .content-streaming .message-content::after { animation: none; }
+}
 
 .tool {
   align-self: stretch;

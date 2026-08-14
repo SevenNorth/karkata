@@ -127,6 +127,8 @@ store.dispose()
 
 `AgentState.messages` is the model-context snapshot and may change after history compaction or run rollback. `AgentUIState.items` is the observed, session-scoped display transcript. It preserves interactions observed after Store creation, but it is not a checkpoint format and cannot reconstruct content lost before binding or across a page refresh.
 
+When Core streaming is enabled, the Store projects `partialResponse` directly into `items` as a normal Assistant message. Every message item has `contentStatus: 'complete' | 'streaming' | 'incomplete'`: cumulative updates keep one stable item ID, successful completion upgrades that item in place, and a failed or aborted run retains already-visible text as `incomplete`. `runStatus` remains separate because a complete message from an earlier tool step can belong to a run that later fails.
+
 For a ready-made browser panel, use the explicit, SSR-safe browser entry:
 
 ```ts
@@ -141,7 +143,7 @@ panel.agent = agent
 panel.showTools = false
 ```
 
-The panel maps Runtime states to natural labels, shows an empty state, and hides tool entries and active tool names by default. Set `panel.showTools = true` for a diagnostics-oriented view. Retry appears only for retryable failed message runs and starts a new run with the original user message; it never retries Human-in-the-Loop answers or tool calls. All visible labels can be replaced through `panel.labels`.
+The panel maps Runtime states to natural labels, shows an empty state, renders streaming Assistant items in place, and hides tool entries and active tool names by default. Set `panel.showTools = true` for a diagnostics-oriented view. Retry appears only for retryable failed message runs and starts a new run with the original user message; it never retries Human-in-the-Loop answers or tool calls. All visible labels can be replaced through `panel.labels`.
 
 Assigning `panel.agent` is the convenient ownership mode. For transcript continuity across component detach/reattach, create one Store in the application and assign `panel.store = store`; the application then owns `store.dispose()`. See the [UI interaction contract](./docs/design/Karkata%20UI%20交互契约.md) for React and Vue integration, item semantics, labels, theming, and lifecycle rules.
 

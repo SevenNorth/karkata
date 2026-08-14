@@ -228,6 +228,8 @@ await agent.send('开始处理另一个客户')
 
 `@karkata/ui` 因此在包内维护独立的会话期展示记录。它只从 Store 绑定时开始保证保留已观察交互，把 Human-in-the-Loop 问答转换为普通消息，并默认从工具条目中移除原始载荷。非空初始上下文只能作为完整性未知的 `context_snapshot` 呈现。模型上下文和 UI transcript 不互相回写，后者也不是持久化或 checkpoint 格式。完整规则见 [Karkata UI 交互契约](./Karkata%20UI%20交互契约.md)。
 
+UI Store 会把当前 `partialResponse` 投影为普通 Assistant 展示条目，但这不会改变上述历史边界。同一步累计更新保持一个 UI ID，完整 AssistantMessage 到达后原位完成；若运行失败、中止或销毁，已显示文本保留为 `contentStatus: 'incomplete'`。该条目只存在于 UI transcript，不能被历史压缩器读取，也不能进入下一次模型请求。
+
 首版不需要提供任意历史注入 API。后续若增加持久化，必须先对恢复数据执行版本和不变式校验。
 
 ## 8. 验收条件
@@ -240,3 +242,4 @@ await agent.send('开始处理另一个客户')
 - Human-in-the-Loop 回答与原 Tool Call ID 配对，终止后的迟到回答不能进入历史。
 - 模型上下文的压缩或回滚不会让已由 UI Store 观察到的展示记录静默消失。
 - 流式半成品不会进入消息历史，终止后的迟到 delta 不能修改状态或下一次模型请求。
+- UI 可以保留失败或中止前已显示的 partial，但必须以 incomplete 标识且不得回写会话历史。

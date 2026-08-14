@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { createDemoAgent } from './demo-agent.mjs'
 
-const fast = { assistant: 1, tool: 1, question: 1, completion: 1 }
+const fast = { assistant: 1, stream: 1, tool: 1, question: 1, completion: 1 }
 
 describe('UI demo Agent', () => {
   it('replays state synchronously and completes one run through Human-in-the-Loop', async () => {
@@ -29,22 +29,27 @@ describe('UI demo Agent', () => {
 
     const result = await run
     assert.deepEqual(result, {
-      status: 'completed', runId: 'demo-run-1', content: 'Order 1042 is scheduled for Friday at 18 Market Street.', steps: 3,
+      status: 'completed', runId: 'demo-run-1', content: 'Order 1042 is scheduled for Friday at 18 Market Street.', steps: 4,
     })
     assert.equal(agent.state.status, 'completed')
     assert.equal(agent.state.messages.at(-1).content, result.content)
     assert.ok(states.some((state) => state.activeTool?.name === 'lookup_order'))
+    assert.ok(states.some((state) => state.partialResponse?.content === 'I found order 1042'))
+    assert.ok(states.some((state) => state.partialResponse?.content === result.content))
+    assert.equal(agent.state.partialResponse, undefined)
   })
 
   it('aborts promptly, rolls back model context, and can start another run', async () => {
-    const agent = createDemoAgent({ seedHistory: false, delays: { ...fast, assistant: 50 } })
+    const agent = createDemoAgent({ seedHistory: false, delays: { ...fast, stream: 50 } })
     const first = agent.send('First request')
     assert.equal(agent.state.status, 'running')
+    await waitFor(() => agent.state.partialResponse?.content === 'I found order 1042')
     agent.abort()
 
-    assert.deepEqual(await first, { status: 'aborted', runId: 'demo-run-1', steps: 0 })
+    assert.deepEqual(await first, { status: 'aborted', runId: 'demo-run-1', steps: 1 })
     assert.equal(agent.state.status, 'aborted')
     assert.deepEqual(agent.state.messages, [])
+    assert.equal(agent.state.partialResponse, undefined)
 
     const second = agent.send('Second request')
     await waitFor(() => agent.state.status === 'waiting_for_input')

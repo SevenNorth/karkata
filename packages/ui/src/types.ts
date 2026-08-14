@@ -29,6 +29,7 @@ export type AgentUISubmitResult =
   | { readonly type: 'response'; readonly accepted: boolean }
 
 export type AgentUIRunStatus = 'unknown' | 'active' | 'completed' | 'error' | 'aborted'
+export type AgentUIContentStatus = 'complete' | 'streaming' | 'incomplete'
 
 export type AgentUIItem =
   | {
@@ -38,6 +39,7 @@ export type AgentUIItem =
       readonly runStatus: AgentUIRunStatus
       readonly role: 'user' | 'assistant'
       readonly source: 'conversation' | 'context_snapshot'
+      readonly contentStatus: AgentUIContentStatus
       readonly content: string
     }
   | {
@@ -51,6 +53,7 @@ export type AgentUIItem =
       readonly requestId: string
       readonly callId: string
       readonly requestStatus: 'pending' | 'answered' | 'cancelled'
+      readonly contentStatus: AgentUIContentStatus
       readonly content: string
     }
   | {
@@ -63,6 +66,7 @@ export type AgentUIItem =
       readonly interaction: 'answer'
       readonly requestId: string
       readonly callId: string
+      readonly contentStatus: AgentUIContentStatus
       readonly content: string
     }
   | {

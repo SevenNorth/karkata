@@ -17,6 +17,12 @@ interface ObservedRun {
   processedMessages: number
 }
 
+interface StreamingItem {
+  readonly runId: string
+  readonly step: number
+  readonly itemId: string
+}
+
 export class AgentUIStore implements AgentUIStoreContract {
   readonly #agent: AgentUIAdapter
   readonly #listeners = new Set<() => void>()
@@ -27,6 +33,7 @@ export class AgentUIStore implements AgentUIStoreContract {
   #items: AgentUIItem[] = []
   #historyCompleteness: AgentUIState['historyCompleteness'] = 'session'
   #observedRun: ObservedRun | undefined
+  #streamingItem: StreamingItem | undefined
   #nextItemId = 1
   #snapshot!: Readonly<AgentUIState>
   #initializing = true
@@ -40,6 +47,7 @@ export class AgentUIStore implements AgentUIStoreContract {
       this.#initializing = false
       if (!this.#agentState) throw new TypeError('AgentUIAdapter.subscribe() must synchronously replay the current state')
       this.#initializeTranscript(this.#agentState)
+      this.#initializeObservedRun(this.#agentState)
       if (this.#request && this.#agentState.status === 'waiting_for_input') this.#addHumanQuestion(this.#request)
       this.#snapshot = this.#createSnapshot(0)
     } catch (error) {
@@ -153,12 +161,23 @@ export class AgentUIStore implements AgentUIStoreContract {
     this.#projectContext(state.messages)
   }
 
+  #initializeObservedRun(state: AgentState): void {
+    if ((state.status !== 'running' && state.status !== 'waiting_for_input') || !state.runId) return
+    this.#observedRun = {
+      runId: state.runId,
+      baseLength: state.messages.length,
+      processedMessages: 0,
+    }
+    this.#applyPartialResponse(state)
+  }
+
   #applyState(state: AgentState): void {
     const previous = this.#agentState
     if (state.status === 'idle' && state.runId === undefined && state.messages.length === 0) {
       this.#items = []
       this.#historyCompleteness = 'session'
       this.#observedRun = undefined
+      this.#streamingItem = undefined
       this.#request = undefined
       return
     }
@@ -172,6 +191,7 @@ export class AgentUIStore implements AgentUIStoreContract {
     }
 
     if (state.status === 'disposed' && this.#observedRun) {
+      this.#markStreamingIncomplete(this.#observedRun.runId)
       this.#setRunStatus(this.#observedRun.runId, 'aborted')
       this.#observedRun = undefined
       return
@@ -179,6 +199,7 @@ export class AgentUIStore implements AgentUIStoreContract {
 
     if ((state.status === 'running' || state.status === 'waiting_for_input') && state.runId) {
       if (this.#observedRun?.runId !== state.runId && previous?.runId !== state.runId) {
+        this.#markStreamingIncomplete()
         this.#observedRun = {
           runId: state.runId,
           baseLength: Math.max(0, state.messages.length - 1),
@@ -186,16 +207,21 @@ export class AgentUIStore implements AgentUIStoreContract {
         }
       }
       this.#processObservedRunMessages(state)
+      this.#applyPartialResponse(state)
       return
     }
 
     if (!state.runId || this.#observedRun?.runId !== state.runId) return
     if (state.result?.status === 'completed') {
-      this.#addMessage('assistant', 'conversation', state.result.content, state.runId, 'active')
+      if (!this.#completeStreaming(state.runId, state.result.content)) {
+        this.#addMessage('assistant', 'conversation', state.result.content, state.runId, 'active')
+      }
       this.#setRunStatus(state.runId, 'completed')
     } else if (state.status === 'error') {
+      this.#markStreamingIncomplete(state.runId)
       this.#setRunStatus(state.runId, 'error')
     } else if (state.status === 'aborted' || state.status === 'disposed') {
+      this.#markStreamingIncomplete(state.runId)
       this.#setRunStatus(state.runId, 'aborted')
     }
     this.#observedRun = undefined
@@ -215,7 +241,9 @@ export class AgentUIStore implements AgentUIStoreContract {
       return
     }
     if (message.role === 'assistant') {
-      if (message.content) this.#addMessage('assistant', 'conversation', message.content, runId, 'active')
+      if (message.content && !this.#completeStreaming(runId, message.content)) {
+        this.#addMessage('assistant', 'conversation', message.content, runId, 'active')
+      }
       this.#addToolCalls(message, runId, 'active')
       return
     }
@@ -241,16 +269,71 @@ export class AgentUIStore implements AgentUIStoreContract {
     content: string,
     runId: string | undefined,
     runStatus: AgentUIRunStatus,
-  ): void {
+  ): string {
+    const id = this.#newId()
     this.#items.push({
       type: 'message',
-      id: this.#newId(),
+      id,
       ...(runId === undefined ? {} : { runId }),
       runStatus,
       role,
       source,
+      contentStatus: 'complete',
       content,
     })
+    return id
+  }
+
+  #applyPartialResponse(state: AgentState): void {
+    const partial = state.partialResponse
+    if ((state.status !== 'running' && state.status !== 'waiting_for_input')
+      || !state.runId || !partial || partial.runId !== state.runId || partial.step !== state.step
+      || !Number.isInteger(partial.step) || partial.step < 0 || !partial.content) return
+    if (this.#streamingItem?.runId === partial.runId && this.#streamingItem.step === partial.step) {
+      const index = this.#findItemIndex(this.#streamingItem.itemId)
+      const item = this.#items[index]
+      if (item?.type === 'message') {
+        if (!partial.content.startsWith(item.content)) return
+        this.#items[index] = { ...item, content: partial.content, contentStatus: 'streaming' }
+        return
+      }
+      this.#streamingItem = undefined
+    }
+    this.#markStreamingIncomplete()
+    const itemId = this.#newId()
+    this.#items.push({
+      type: 'message', id: itemId, runId: partial.runId, runStatus: 'active',
+      role: 'assistant', source: 'conversation', contentStatus: 'streaming', content: partial.content,
+    })
+    this.#streamingItem = { runId: partial.runId, step: partial.step, itemId }
+  }
+
+  #completeStreaming(runId: string, content: string): boolean {
+    const streaming = this.#streamingItem
+    if (!streaming || streaming.runId !== runId) return false
+    const index = this.#findItemIndex(streaming.itemId)
+    const item = this.#items[index]
+    this.#streamingItem = undefined
+    if (item?.type !== 'message') return false
+    if (!content.startsWith(item.content)) {
+      this.#items[index] = { ...item, contentStatus: 'incomplete' }
+      return false
+    }
+    this.#items[index] = { ...item, content, contentStatus: 'complete' }
+    return true
+  }
+
+  #markStreamingIncomplete(runId?: string): void {
+    const streaming = this.#streamingItem
+    if (!streaming || (runId !== undefined && streaming.runId !== runId)) return
+    const index = this.#findItemIndex(streaming.itemId)
+    const item = this.#items[index]
+    if (item?.type === 'message') this.#items[index] = { ...item, contentStatus: 'incomplete' }
+    this.#streamingItem = undefined
+  }
+
+  #findItemIndex(itemId: string): number {
+    return this.#items.findIndex((item) => item.id === itemId)
   }
 
   #addToolCalls(message: AssistantMessage, runId: string | undefined, runStatus: AgentUIRunStatus): void {
@@ -327,7 +410,8 @@ export class AgentUIStore implements AgentUIStoreContract {
     this.#items.push({
       type: 'message', id: this.#newId(), runId: request.runId, runStatus: 'active',
       role: 'assistant', source: 'human_input', interaction: 'question',
-      requestId: request.id, callId: request.callId, requestStatus: 'pending', content: request.prompt,
+      requestId: request.id, callId: request.callId, requestStatus: 'pending',
+      contentStatus: 'complete', content: request.prompt,
     })
   }
 
@@ -339,7 +423,7 @@ export class AgentUIStore implements AgentUIStoreContract {
     this.#items.push({
       type: 'message', id: this.#newId(), runId: question.runId, runStatus: 'active',
       role: 'user', source: 'human_input', interaction: 'answer',
-      requestId: question.requestId, callId: question.callId, content,
+      requestId: question.requestId, callId: question.callId, contentStatus: 'complete', content,
     })
   }
 

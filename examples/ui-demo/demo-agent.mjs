@@ -1,9 +1,23 @@
 const DEFAULT_DELAYS = Object.freeze({
   assistant: 450,
+  stream: 140,
   tool: 650,
   question: 500,
   completion: 700,
 })
+
+const LOOKUP_CONTENT = 'I found order 1042 and am checking the available delivery window.'
+const LOOKUP_FRAMES = Object.freeze([
+  'I found order 1042',
+  'I found order 1042 and am checking',
+  LOOKUP_CONTENT,
+])
+const COMPLETION_CONTENT = 'Order 1042 is scheduled for Friday at 18 Market Street.'
+const COMPLETION_FRAMES = Object.freeze([
+  'Order 1042 is scheduled',
+  'Order 1042 is scheduled for Friday',
+  COMPLETION_CONTENT,
+])
 
 const SEEDED_HISTORY = Object.freeze([
   Object.freeze({ role: 'user', content: 'Check order 1042 and summarize its delivery status.' }),
@@ -84,7 +98,7 @@ class DemoAgent {
 
     return new Promise((resolve) => {
       run.resolve = resolve
-      this.#schedule(run, this.#delays.assistant, () => this.#publishAssistant(run))
+      this.#schedule(run, this.#delays.assistant, () => this.#streamAssistant(run, 0))
     })
   }
 
@@ -103,7 +117,7 @@ class DemoAgent {
       messages: [...this.#history, ...run.messages],
       contextUsage: this.#usage(run.messages),
     })
-    this.#schedule(run, this.#delays.completion, () => this.#complete(run))
+    this.#schedule(run, this.#delays.completion, () => this.#streamCompletion(run, 0))
     return true
   }
 
@@ -123,9 +137,8 @@ class DemoAgent {
   }
 
   #publishAssistant(run) {
-    run.steps = 1
     run.messages.push({
-      role: 'assistant', content: 'I found order 1042 and am checking the available delivery window.',
+      role: 'assistant', content: LOOKUP_CONTENT,
       toolCalls: [{ callId: `demo-call-${run.sequence}-lookup`, name: 'lookup_order', input: { orderId: '1042' } }],
     })
     this.#publish({
@@ -135,6 +148,20 @@ class DemoAgent {
       contextUsage: this.#usage(run.messages),
     })
     this.#schedule(run, this.#delays.tool, () => this.#publishToolResult(run))
+  }
+
+  #streamAssistant(run, index) {
+    run.steps = 1
+    this.#publish({
+      status: 'running', runId: run.runId, step: run.steps,
+      messages: [...this.#history, ...run.messages],
+      partialResponse: { runId: run.runId, step: run.steps, content: LOOKUP_FRAMES[index] },
+      contextUsage: this.#usage(run.messages),
+    })
+    this.#schedule(run, this.#delays.stream, () => {
+      if (index + 1 < LOOKUP_FRAMES.length) this.#streamAssistant(run, index + 1)
+      else this.#publishAssistant(run)
+    })
   }
 
   #publishToolResult(run) {
@@ -172,7 +199,7 @@ class DemoAgent {
   }
 
   #complete(run) {
-    const content = 'Order 1042 is scheduled for Friday at 18 Market Street.'
+    const content = COMPLETION_CONTENT
     run.messages.push({ role: 'assistant', content })
     this.#history = [...this.#history, ...run.messages]
     this.#activeRun = undefined
@@ -183,6 +210,20 @@ class DemoAgent {
       contextUsage: this.#usage([]),
     })
     run.resolve(result)
+  }
+
+  #streamCompletion(run, index) {
+    run.steps = 4
+    this.#publish({
+      status: 'running', runId: run.runId, step: run.steps,
+      messages: [...this.#history, ...run.messages],
+      partialResponse: { runId: run.runId, step: run.steps, content: COMPLETION_FRAMES[index] },
+      contextUsage: this.#usage(run.messages),
+    })
+    this.#schedule(run, this.#delays.stream, () => {
+      if (index + 1 < COMPLETION_FRAMES.length) this.#streamCompletion(run, index + 1)
+      else this.#complete(run)
+    })
   }
 
   #schedule(run, delay, callback) {

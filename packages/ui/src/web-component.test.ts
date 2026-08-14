@@ -123,16 +123,16 @@ describe('defineKarkataPanel', () => {
       items: [
         {
           type: 'message', id: 'context', runStatus: 'unknown', role: 'user',
-          source: 'context_snapshot', content: 'Earlier summary',
+          source: 'context_snapshot', contentStatus: 'complete', content: 'Earlier summary',
         },
         {
           type: 'message', id: 'user', runId: 'run', runStatus: 'active', role: 'user',
-          source: 'conversation', content: '<img src=x onerror=alert(1)>',
+          source: 'conversation', contentStatus: 'complete', content: '<img src=x onerror=alert(1)>',
         },
         {
           type: 'message', id: 'question', runId: 'run', runStatus: 'active', role: 'assistant',
           source: 'human_input', interaction: 'question', requestId: 'request', callId: 'call-question',
-          requestStatus: 'pending', content: 'Continue?',
+          requestStatus: 'pending', contentStatus: 'complete', content: 'Continue?',
         },
         {
           type: 'tool', id: 'tool', runId: 'run', runStatus: 'active', callId: 'call-tool',
@@ -186,13 +186,68 @@ describe('defineKarkataPanel', () => {
     store.publish({
       items: [{
         type: 'message', id: 'first', runId: 'run', runStatus: 'active',
-        role: 'user', source: 'conversation', content: 'Hello',
+        role: 'user', source: 'conversation', contentStatus: 'complete', content: 'Hello',
       }],
       status: 'running',
     })
 
     expect(root.querySelector('[part="status"]')?.textContent).toBe('Working')
     expect(root.querySelector<HTMLElement>('[part="empty"]')?.hidden).toBe(true)
+  })
+
+  it('updates a streaming message in place with safe status parts and protected scrolling', () => {
+    const tagName = 'karkata-test-streaming'
+    defineKarkataPanel(tagName)
+    const panel = document.createElement(tagName) as KarkataPanelElement
+    const store = new FakeStore()
+    store.snapshot = Object.freeze({
+      items: [{
+        type: 'message', id: 'stream', runId: 'run', runStatus: 'active', role: 'assistant',
+        source: 'conversation', contentStatus: 'streaming', content: 'Hel',
+      }],
+      composer: { mode: 'message' }, historyCompleteness: 'session', status: 'running',
+      runId: 'run', revision: 1,
+    })
+    panel.store = store
+    document.body.append(panel)
+
+    const root = panel.shadowRoot!
+    const messages = root.querySelector<HTMLElement>('[part="messages"]')!
+    const first = root.querySelector<HTMLElement>('[data-item-id="stream"]')!
+    expect(first.dataset.contentStatus).toBe('streaming')
+    expect(first.getAttribute('part')).toContain('message-streaming')
+    expect(first.classList.contains('content-streaming')).toBe(true)
+
+    Object.defineProperties(messages, {
+      scrollHeight: { configurable: true, get: () => 200 },
+      clientHeight: { configurable: true, get: () => 100 },
+    })
+    messages.scrollTop = 95
+    store.publish({ items: [{
+      type: 'message', id: 'stream', runId: 'run', runStatus: 'active', role: 'assistant',
+      source: 'conversation', contentStatus: 'streaming', content: '<b>Hello</b>',
+    }] })
+
+    const updated = root.querySelector<HTMLElement>('[data-item-id="stream"]')!
+    expect(updated).toBe(first)
+    expect(updated.textContent).toBe('<b>Hello</b>')
+    expect(updated.querySelector('b')).toBeNull()
+    expect(messages.scrollTop).toBe(200)
+
+    messages.scrollTop = 0
+    store.publish({
+      items: [{
+        type: 'message', id: 'stream', runId: 'run', runStatus: 'aborted', role: 'assistant',
+        source: 'conversation', contentStatus: 'incomplete', content: '<b>Hello</b> later',
+      }],
+      status: 'aborted',
+    })
+
+    expect(root.querySelector('[data-item-id="stream"]')).toBe(first)
+    expect(first.dataset.contentStatus).toBe('incomplete')
+    expect(first.getAttribute('part')).toContain('message-incomplete')
+    expect(first.classList.contains('content-incomplete')).toBe(true)
+    expect(messages.scrollTop).toBe(0)
   })
 
   it('offers an accessible retry for a retryable failed user run and preserves the current draft', async () => {
@@ -203,7 +258,7 @@ describe('defineKarkataPanel', () => {
     store.snapshot = Object.freeze({
       items: [{
         type: 'message', id: 'failed-user', runId: 'failed-run', runStatus: 'error',
-        role: 'user', source: 'conversation', content: 'Try this request again',
+        role: 'user', source: 'conversation', contentStatus: 'complete', content: 'Try this request again',
       }],
       composer: { mode: 'message' }, historyCompleteness: 'session', status: 'error', runId: 'failed-run',
       error: { code: 'MODEL_NETWORK_ERROR', message: 'Connection was interrupted', retryable: true }, revision: 2,
@@ -232,7 +287,8 @@ describe('defineKarkataPanel', () => {
     store.snapshot = Object.freeze({
       items: [{
         type: 'message', id: 'answer', runId: 'failed-run', runStatus: 'error', role: 'user',
-        source: 'human_input', interaction: 'answer', requestId: 'request', callId: 'call', content: 'Yes',
+        source: 'human_input', interaction: 'answer', requestId: 'request', callId: 'call',
+        contentStatus: 'complete', content: 'Yes',
       }],
       composer: { mode: 'message' }, historyCompleteness: 'session', status: 'error', runId: 'failed-run',
       error: { code: 'MODEL_AUTH_ERROR', message: 'Authentication failed', retryable: false }, revision: 2,

@@ -613,6 +613,8 @@ React、Vue 和原生 UI 通过 `createAgentUIStore(agent)` 订阅 `AgentUIState
 
 `AgentState.messages` 是当前模型上下文快照：成功的历史压缩可以替换旧消息，失败或中止会回滚本轮消息。它不是追加式 UI 历史。`AgentUIStore` 从绑定时开始维护独立的会话期展示记录，保留已观察到但从模型上下文消失的交互；绑定时已有的非空内容只能标记为 `context_snapshot`、`runStatus: 'unknown'` 和 `historyCompleteness: 'context_only'`，不能冒充完整 transcript。`clearHistory()` 是显式清空边界，Store items 也不是 checkpoint 或持久化格式。
 
+启用流式后，Store 将匹配当前 `runId + step` 的 `partialResponse` 投影为稳定 ID 的普通 Assistant item，并以 `contentStatus: streaming` 原位更新。完整消息到达时转为 `complete`；失败、中止或 dispose 时保留已显示内容并转为 `incomplete`。该状态与 `runStatus` 独立，不反向写入 Core。默认 Web Component 继续使用 keyed DOM 和近底滚动保护，自定义 React/Vue UI 可直接按 `contentStatus` 判断，无需读取或拼接 Core partial。
+
 Human-in-the-Loop 问题和被接受的回答在 Store 中表现为普通 Assistant/用户消息，并以 `source: 'human_input'` 保留来源。其他 Tool Call/Result 只公开 `name`、`callId` 和状态，不公开原始输入或结果。详细契约见 [Karkata UI 交互契约](./Karkata%20UI%20交互契约.md)。
 
 Web Component 显式注册且导入阶段不访问 DOM：
@@ -762,7 +764,7 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 - 已完成：Human-in-the-Loop 用户输入协议。
 - 已完成：框架无关 Store 与基于 Web Component 的可选 `@karkata/ui`。
 - 已完成：Core 与 OpenAI-compatible 的流式回答基础。
-- 后续：`@karkata/ui` 的增量 Assistant 消息投影。
+- 已完成：`@karkata/ui` 的增量 Assistant 消息投影。
 - 后续：checkpoint 与可插拔持久化。
 - 按需：原生 Provider 不透明 compaction item 适配。
 
