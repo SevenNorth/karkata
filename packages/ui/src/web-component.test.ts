@@ -114,7 +114,7 @@ describe('defineKarkataPanel', () => {
     expect(agent.subscriptionCounts).toEqual({ states: 1, requests: 1 })
   })
 
-  it('renders safe conversation items, tool status, context usage, and custom labels', () => {
+  it('renders safe conversation items and consumer labels while hiding tool protocol details by default', () => {
     const tagName = 'karkata-test-rendering'
     defineKarkataPanel(tagName)
     const panel = document.createElement(tagName) as KarkataPanelElement
@@ -145,6 +145,7 @@ describe('defineKarkataPanel', () => {
     })
     panel.labels = {
       send: 'Submit', abort: 'Cancel', responsePlaceholder: 'Type your answer', contextSnapshot: 'Context',
+      statusWaitingForInput: 'Waiting for you', requestPending: 'Needs your answer', toolCompleted: 'Finished',
     }
     panel.store = store
     document.body.append(panel)
@@ -153,13 +154,96 @@ describe('defineKarkataPanel', () => {
     expect(root.querySelector('[part="messages"]')?.textContent).toContain('Earlier summary')
     expect(root.querySelector('[part="messages"]')?.textContent).toContain('<img src=x onerror=alert(1)>')
     expect(root.querySelector('[part="messages"]')?.textContent).toContain('Continue?')
-    expect(root.querySelector('[part="tool"]')?.textContent).toContain('lookup')
+    expect(root.querySelector('[part="messages"]')?.textContent).toContain('Needs your answer')
+    expect(root.querySelector('[part="messages"]')?.textContent).not.toContain('pending')
+    expect(root.querySelector('[part="status"]')?.textContent).toBe('Waiting for you')
+    expect(root.querySelector('[part="tool"]')).toBeNull()
     expect(root.querySelector('img')).toBeNull()
     expect(root.querySelector('[part="context"]')?.textContent).toContain('25 / 100')
     expect(root.querySelector('textarea')?.placeholder).toBe('Type your answer')
     expect(root.querySelector('[part="submit"]')?.getAttribute('aria-label')).toBe('Submit')
     expect(root.querySelector('[part="abort"]')?.getAttribute('aria-label')).toBe('Cancel')
     expect(root.querySelector('[data-item-id="context"]')?.textContent).toContain('Context')
+
+    panel.showTools = true
+    expect(root.querySelector('[part="tool"]')?.textContent).toBe('lookup · Finished')
+    expect(root.querySelector('[part="status"]')?.textContent).toBe('Waiting for you · lookup')
+  })
+
+  it('renders a natural empty state until the first visible message arrives', () => {
+    const tagName = 'karkata-test-empty'
+    defineKarkataPanel(tagName)
+    const panel = document.createElement(tagName) as KarkataPanelElement
+    const store = new FakeStore()
+    panel.store = store
+    document.body.append(panel)
+
+    const root = panel.shadowRoot!
+    expect(root.querySelector('[part="status"]')?.textContent).toBe('Ready')
+    expect(root.querySelector('[part="empty"]')?.textContent).toBe('Start a conversation')
+    expect(root.querySelector<HTMLElement>('[part="empty"]')?.hidden).toBe(false)
+
+    store.publish({
+      items: [{
+        type: 'message', id: 'first', runId: 'run', runStatus: 'active',
+        role: 'user', source: 'conversation', content: 'Hello',
+      }],
+      status: 'running',
+    })
+
+    expect(root.querySelector('[part="status"]')?.textContent).toBe('Working')
+    expect(root.querySelector<HTMLElement>('[part="empty"]')?.hidden).toBe(true)
+  })
+
+  it('offers an accessible retry for a retryable failed user run and preserves the current draft', async () => {
+    const tagName = 'karkata-test-retry'
+    defineKarkataPanel(tagName)
+    const panel = document.createElement(tagName) as KarkataPanelElement
+    const store = new FakeStore()
+    store.snapshot = Object.freeze({
+      items: [{
+        type: 'message', id: 'failed-user', runId: 'failed-run', runStatus: 'error',
+        role: 'user', source: 'conversation', content: 'Try this request again',
+      }],
+      composer: { mode: 'message' }, historyCompleteness: 'session', status: 'error', runId: 'failed-run',
+      error: { code: 'MODEL_NETWORK_ERROR', message: 'Connection was interrupted', retryable: true }, revision: 2,
+    })
+    panel.labels = { retry: 'Try again' }
+    panel.store = store
+    document.body.append(panel)
+    const root = panel.shadowRoot!
+    const textarea = root.querySelector('textarea')!
+    textarea.value = 'Keep this draft'
+
+    const retry = root.querySelector<HTMLButtonElement>('[part="retry"]')!
+    expect(retry.hidden).toBe(false)
+    expect(retry.getAttribute('aria-label')).toBe('Try again')
+    retry.click()
+
+    await vi.waitFor(() => { expect(store.submit).toHaveBeenCalledWith('Try this request again') })
+    expect(textarea.value).toBe('Keep this draft')
+  })
+
+  it('does not offer retry for non-retryable errors or non-conversation answers', () => {
+    const tagName = 'karkata-test-no-retry'
+    defineKarkataPanel(tagName)
+    const panel = document.createElement(tagName) as KarkataPanelElement
+    const store = new FakeStore()
+    store.snapshot = Object.freeze({
+      items: [{
+        type: 'message', id: 'answer', runId: 'failed-run', runStatus: 'error', role: 'user',
+        source: 'human_input', interaction: 'answer', requestId: 'request', callId: 'call', content: 'Yes',
+      }],
+      composer: { mode: 'message' }, historyCompleteness: 'session', status: 'error', runId: 'failed-run',
+      error: { code: 'MODEL_AUTH_ERROR', message: 'Authentication failed', retryable: false }, revision: 2,
+    })
+    panel.store = store
+    document.body.append(panel)
+    const retry = panel.shadowRoot!.querySelector<HTMLButtonElement>('[part="retry"]')!
+    expect(retry.hidden).toBe(true)
+
+    store.publish({ error: { code: 'MODEL_NETWORK_ERROR', message: 'Network failed', retryable: true } })
+    expect(retry.hidden).toBe(true)
   })
 
   it('uses one composer, preserves rejected answers, forwards abort, and ignores IME Enter', async () => {
@@ -167,6 +251,7 @@ describe('defineKarkataPanel', () => {
     defineKarkataPanel(tagName)
     const panel = document.createElement(tagName) as KarkataPanelElement
     const store = new FakeStore()
+    panel.labels = { responseRejected: 'This answer can no longer be submitted.' }
     panel.store = store
     document.body.append(panel)
     const root = panel.shadowRoot!
@@ -187,7 +272,7 @@ describe('defineKarkataPanel', () => {
     form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
     await vi.waitFor(() => { expect(store.submit).toHaveBeenCalledWith('keep this answer') })
     expect(textarea.value).toBe('keep this answer')
-    expect(root.querySelector('[part="error"]')?.textContent).not.toBe('')
+    expect(root.querySelector('[part="error"]')?.textContent).toContain('This answer can no longer be submitted.')
 
     root.querySelector<HTMLButtonElement>('[part="abort"]')!.click()
     expect(store.abort).toHaveBeenCalledOnce()

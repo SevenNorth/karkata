@@ -126,9 +126,15 @@ import { defineKarkataPanel, type KarkataPanelElement } from '@karkata/ui/web-co
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')!
 panel.agent = agent
+
+// Tool protocol details are hidden for end users by default.
+// Enable them only in a diagnostics-oriented surface.
+panel.showTools = false
 ```
 
-Assigning `panel.agent` is the convenient ownership mode. For transcript continuity across component detach/reattach, create one Store in the application and assign `panel.store = store`; the application then owns `store.dispose()`. See the [UI interaction contract](./docs/design/Karkata%20UI%20交互契约.md) for React and Vue integration, item semantics, theming, and lifecycle rules.
+The panel maps Runtime states to natural labels, shows an empty state, and hides tool entries and active tool names by default. Set `panel.showTools = true` for a diagnostics-oriented view. Retry appears only for retryable failed message runs and starts a new run with the original user message; it never retries Human-in-the-Loop answers or tool calls. All visible labels can be replaced through `panel.labels`.
+
+Assigning `panel.agent` is the convenient ownership mode. For transcript continuity across component detach/reattach, create one Store in the application and assign `panel.store = store`; the application then owns `store.dispose()`. See the [UI interaction contract](./docs/design/Karkata%20UI%20交互契约.md) for React and Vue integration, item semantics, labels, theming, and lifecycle rules.
 
 `createAgent()` is the concise OpenAI-compatible entry point. It creates an `OpenAICompatibleAdapter` internally while keeping provider settings separate from Runtime settings under `agent`. Advanced integrations can continue to use `new Agent({ llm: new OpenAICompatibleAdapter(...) })`, and other model protocols can implement the Core `LLMAdapter` contract without changing the Runtime.
 

@@ -130,9 +130,13 @@ store.dispose()
 
 组件使用一个 textarea：`message` 与 `response` composer 只改变输入语义和标签。Enter 提交，Shift+Enter 换行，输入法 composition 期间 Enter 不提交。失效回答保留输入；活动运行可以调用停止按钮转发 `abort()`。所有内容以纯文本渲染，不解释 HTML 或 Markdown。
 
+面板默认面向终端用户：运行状态、问题状态和工具状态先映射为自然文案，不直接展示 `waiting_for_input` 等协议枚举。工具条目和活动工具名默认隐藏；诊断界面可设置 `panel.showTools = true` 开启，该属性只改变 DOM 投影，不改变 Store 快照。没有可见条目时显示可配置空状态。
+
+只有当当前状态为 `error`、`error.retryable === true`，且展示记录中存在同一 `runId` 的失败普通用户消息时，面板才显示重试。重试通过 `store.submit(originalMessage)` 开始新运行，不重放 Human-in-the-Loop 回答、工具载荷或上下文快照，也不清空输入框中的当前草稿。重试不意味着旧运行的外部副作用已回滚或具有幂等性。
+
 ## 7. 可访问性与主题
 
-状态和消息区域使用 live region，消息列表使用 log 语义，错误使用 alert，图标按钮具有可替换的可访问名称。`labels` 可覆盖 `send`、`abort`、`messagePlaceholder`、`responsePlaceholder` 和 `contextSnapshot`。
+状态和消息区域使用 live region，消息列表使用 log 语义，错误使用 alert，图标按钮具有可替换的可访问名称。`labels` 是 `Partial<KarkataPanelLabels>`，可按需覆盖按钮、输入占位、上下文快照、空状态、运行/问题/工具状态以及本地错误文案；未覆盖字段使用内置英文默认值。
 
 组件公开以下 CSS 自定义属性：
 
@@ -144,7 +148,7 @@ store.dispose()
 - `--karkata-accent`
 - `--karkata-danger`
 
-稳定 parts 包括 `panel`、`header`、`status`、`context`、`messages`、`message`、`message-user`、`message-assistant`、`tool`、`error`、`composer`、`submit` 和 `abort`。长文本必须换行；新增条目只在用户已接近列表底部时自动滚动。
+稳定 parts 包括 `panel`、`header`、`status`、`context`、`messages`、`empty`、`message`、`message-user`、`message-assistant`、`tool`、`error`、`retry`、`composer`、`submit` 和 `abort`。长文本必须换行；新增条目只在用户已接近列表底部时自动滚动。
 
 ## 8. 安全不变量
 

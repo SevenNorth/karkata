@@ -4,24 +4,57 @@ import type { AgentUIAdapter, AgentUIState, AgentUIStore } from './types.js'
 export interface KarkataPanelLabels {
   readonly send: string
   readonly abort: string
+  readonly retry: string
   readonly messagePlaceholder: string
   readonly responsePlaceholder: string
   readonly contextSnapshot: string
+  readonly empty: string
+  readonly statusIdle: string
+  readonly statusRunning: string
+  readonly statusWaitingForInput: string
+  readonly statusCompleted: string
+  readonly statusError: string
+  readonly statusAborted: string
+  readonly statusDisposed: string
+  readonly requestPending: string
+  readonly requestCancelled: string
+  readonly toolPending: string
+  readonly toolCompleted: string
+  readonly toolError: string
+  readonly responseRejected: string
+  readonly operationFailed: string
 }
 
 export interface KarkataPanelElement extends HTMLElement {
   agent: AgentUIAdapter | null
   store: AgentUIStore | null
   labels: Partial<KarkataPanelLabels> | null
+  showTools: boolean
 }
 
 const definitions = new WeakMap<CustomElementRegistry, Map<string, CustomElementConstructor>>()
 const DEFAULT_LABELS: KarkataPanelLabels = Object.freeze({
   send: 'Send',
   abort: 'Stop',
+  retry: 'Retry',
   messagePlaceholder: 'Message',
   responsePlaceholder: 'Reply',
   contextSnapshot: 'Context snapshot',
+  empty: 'Start a conversation',
+  statusIdle: 'Ready',
+  statusRunning: 'Working',
+  statusWaitingForInput: 'Waiting for your response',
+  statusCompleted: 'Completed',
+  statusError: 'Something went wrong',
+  statusAborted: 'Stopped',
+  statusDisposed: 'Unavailable',
+  requestPending: 'Waiting for your response',
+  requestCancelled: 'Cancelled',
+  toolPending: 'Working',
+  toolCompleted: 'Completed',
+  toolError: 'Failed',
+  responseRejected: 'This question is no longer active.',
+  operationFailed: 'The operation failed.',
 })
 
 export function defineKarkataPanel(tagName = 'karkata-panel'): CustomElementConstructor {
@@ -56,17 +89,22 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
     #boundStore: AgentUIStore | null = null
     #unsubscribe: (() => void) | undefined
     #labels: Partial<KarkataPanelLabels> | null = null
+    #showTools = false
     readonly #root: ShadowRoot
     readonly #status: HTMLElement
     readonly #context: HTMLElement
     readonly #messages: HTMLElement
+    readonly #empty: HTMLElement
     readonly #error: HTMLElement
+    readonly #errorMessage: HTMLElement
+    readonly #retryButton: HTMLButtonElement
     readonly #form: HTMLFormElement
     readonly #textarea: HTMLTextAreaElement
     readonly #submitButton: HTMLButtonElement
     readonly #abortButton: HTMLButtonElement
     readonly #itemElements = new Map<string, HTMLElement>()
     #localError = ''
+    #retryMessage: string | undefined
 
     constructor() {
       super()
@@ -91,10 +129,22 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
       this.#messages.setAttribute('role', 'log')
       this.#messages.setAttribute('aria-live', 'polite')
       this.#messages.setAttribute('aria-relevant', 'additions text')
+      this.#empty = doc.createElement('div')
+      this.#empty.setAttribute('part', 'empty')
+      this.#empty.className = 'empty'
+      this.#messages.append(this.#empty)
 
       this.#error = doc.createElement('div')
       this.#error.setAttribute('part', 'error')
       this.#error.setAttribute('role', 'alert')
+      this.#errorMessage = doc.createElement('span')
+      this.#errorMessage.className = 'error-message'
+      this.#retryButton = doc.createElement('button')
+      this.#retryButton.type = 'button'
+      this.#retryButton.setAttribute('part', 'retry')
+      this.#retryButton.textContent = '\u21bb'
+      this.#retryButton.hidden = true
+      this.#error.append(this.#errorMessage, this.#retryButton)
 
       this.#form = doc.createElement('form')
       this.#form.setAttribute('part', 'composer')
@@ -128,6 +178,7 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
         }
       })
       this.#abortButton.addEventListener('click', () => { this.#boundStore?.abort() })
+      this.#retryButton.addEventListener('click', () => { void this.#retryFailedMessage() })
       this.#render()
     }
 
@@ -152,6 +203,14 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
     get labels(): Partial<KarkataPanelLabels> | null { return this.#labels }
     set labels(value: Partial<KarkataPanelLabels> | null) {
       this.#labels = value ? Object.freeze({ ...value }) : null
+      this.#render()
+    }
+
+    get showTools(): boolean { return this.#showTools }
+    set showTools(value: boolean) {
+      const next = Boolean(value)
+      if (next === this.#showTools) return
+      this.#showTools = next
       this.#render()
     }
 
@@ -189,17 +248,21 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
 
     #render(): void {
       const state = this.#boundStore?.getSnapshot()
-      const labels = { ...DEFAULT_LABELS, ...this.#labels }
+      const labels = labelsFor(this.#labels)
       this.#status.textContent = state
-        ? `${state.status}${state.activeToolName ? ` \u00b7 ${state.activeToolName}` : ''}`
+        ? `${statusLabel(state.status, labels)}${this.#showTools && state.activeToolName ? ` \u00b7 ${state.activeToolName}` : ''}`
         : ''
       this.#context.textContent = state?.contextUsage
         ? `${state.contextUsage.usedTokens} / ${state.contextUsage.maxTokens}`
         : ''
       this.#context.hidden = !state?.contextUsage
-      this.#error.textContent = this.#localError || state?.error?.message || ''
-      this.#error.hidden = !this.#error.textContent
-      this.#renderItems(state?.items ?? [], labels)
+      this.#errorMessage.textContent = this.#localError || state?.error?.message || ''
+      this.#retryMessage = state ? findRetryMessage(state) : undefined
+      this.#retryButton.hidden = this.#retryMessage === undefined
+      this.#retryButton.title = labels.retry
+      this.#retryButton.setAttribute('aria-label', labels.retry)
+      this.#error.hidden = !this.#errorMessage.textContent && this.#retryButton.hidden
+      this.#renderItems(state?.items ?? [], labels, Boolean(state))
       this.#textarea.placeholder = state?.composer.mode === 'response'
         ? labels.responsePlaceholder
         : labels.messagePlaceholder
@@ -211,16 +274,19 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
       this.#updateControls()
     }
 
-    #renderItems(items: AgentUIState['items'], labels: KarkataPanelLabels): void {
+    #renderItems(items: AgentUIState['items'], labels: KarkataPanelLabels, hasState: boolean): void {
       const nearBottom = this.#messages.scrollHeight - this.#messages.clientHeight - this.#messages.scrollTop < 48
-      const nextIds = new Set(items.map((item) => item.id))
+      const visibleItems = this.#showTools ? items : items.filter((item) => item.type !== 'tool')
+      this.#empty.textContent = labels.empty
+      this.#empty.hidden = !hasState || visibleItems.length > 0
+      const nextIds = new Set(visibleItems.map((item) => item.id))
       for (const [id, element] of this.#itemElements) {
         if (!nextIds.has(id)) {
           element.remove()
           this.#itemElements.delete(id)
         }
       }
-      for (const item of items) {
+      for (const item of visibleItems) {
         let element = this.#itemElements.get(item.id)
         if (!element) {
           element = this.ownerDocument.createElement(item.type === 'message' ? 'article' : 'div')
@@ -232,7 +298,7 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
         if (item.type === 'tool') {
           element.setAttribute('part', 'tool')
           element.className = `tool tool-${item.status}`
-          element.textContent = `${item.name} \u00b7 ${item.status}`
+          element.textContent = `${item.name} \u00b7 ${toolStatusLabel(item.status, labels)}`
         } else {
           element.setAttribute('part', `message message-${item.role}`)
           element.className = `message message-${item.role} source-${item.source}`
@@ -250,7 +316,9 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
             && item.requestStatus !== 'answered') {
             const requestStatus = this.ownerDocument.createElement('span')
             requestStatus.className = 'request-status'
-            requestStatus.textContent = item.requestStatus
+            requestStatus.textContent = item.requestStatus === 'pending'
+              ? labels.requestPending
+              : labels.requestCancelled
             element.append(requestStatus)
           }
         }
@@ -282,7 +350,7 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
       try {
         submission = store.submit(value)
       } catch (error) {
-        this.#localError = errorMessage(error)
+        this.#setSubmissionError(store, error)
         this.#render()
         return
       }
@@ -293,20 +361,74 @@ function createPanelConstructor(Base: typeof HTMLElement): CustomElementConstruc
         if (this.#boundStore !== store) return
         if (result.type === 'response') {
           if (result.accepted) this.#textarea.value = ''
-          else this.#localError = 'The request is no longer active.'
+          else this.#localError = labelsFor(this.#labels).responseRejected
         }
       } catch (error) {
         if (this.#boundStore !== store) return
         if (mode === 'message' && !this.#textarea.value) this.#textarea.value = value
-        this.#localError = errorMessage(error)
+        this.#setSubmissionError(store, error)
       }
       this.#render()
+    }
+
+    async #retryFailedMessage(): Promise<void> {
+      const store = this.#boundStore
+      const value = this.#retryMessage
+      if (!store || !value) return
+      this.#localError = ''
+      this.#render()
+      try {
+        await store.submit(value)
+      } catch (error) {
+        if (!this.#setSubmissionError(store, error)) return
+      }
+      if (this.#boundStore === store) this.#render()
+    }
+
+    #setSubmissionError(store: AgentUIStore, error: unknown): boolean {
+      if (this.#boundStore !== store) return false
+      this.#localError = errorMessage(error, labelsFor(this.#labels).operationFailed)
+      return true
     }
   }
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'The operation failed.'
+function labelsFor(labels: Partial<KarkataPanelLabels> | null): KarkataPanelLabels {
+  return { ...DEFAULT_LABELS, ...labels }
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
+function findRetryMessage(state: Readonly<AgentUIState>): string | undefined {
+  if (state.status !== 'error' || !state.error?.retryable || !state.runId) return undefined
+  for (let index = state.items.length - 1; index >= 0; index--) {
+    const item = state.items[index]
+    if (item?.type === 'message' && item.role === 'user' && item.source === 'conversation'
+      && item.runStatus === 'error' && item.runId === state.runId) return item.content
+  }
+  return undefined
+}
+
+function statusLabel(status: AgentUIState['status'], labels: KarkataPanelLabels): string {
+  switch (status) {
+    case 'idle': return labels.statusIdle
+    case 'running': return labels.statusRunning
+    case 'waiting_for_input': return labels.statusWaitingForInput
+    case 'completed': return labels.statusCompleted
+    case 'error': return labels.statusError
+    case 'aborted': return labels.statusAborted
+    case 'disposed': return labels.statusDisposed
+  }
+}
+
+function toolStatusLabel(status: Extract<AgentUIState['items'][number], { type: 'tool' }>['status'], labels: KarkataPanelLabels): string {
+  switch (status) {
+    case 'pending': return labels.toolPending
+    case 'completed': return labels.toolCompleted
+    case 'error': return labels.toolError
+  }
 }
 
 const PANEL_STYLES = `
@@ -356,6 +478,14 @@ const PANEL_STYLES = `
   gap: 0.625rem;
 }
 
+.empty {
+  margin: auto;
+  padding: 1rem;
+  color: var(--karkata-muted);
+  text-align: center;
+}
+.empty[hidden] { display: none; }
+
 .message {
   width: fit-content;
   max-width: min(85%, 42rem);
@@ -384,8 +514,19 @@ const PANEL_STYLES = `
 .tool-completed { border-left-color: var(--karkata-accent); }
 .tool-error { border-left-color: var(--karkata-danger); }
 
-[part='error'] { padding: 0.4rem 0.75rem; color: var(--karkata-danger); border-top: 1px solid var(--karkata-border); }
+[part='error'] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  color: var(--karkata-danger);
+  border-top: 1px solid var(--karkata-border);
+}
 [part='error'][hidden] { display: none; }
+.error-message { min-width: 0; overflow-wrap: anywhere; }
+[part='retry'] { width: 2rem; height: 2rem; flex: none; color: var(--karkata-danger); }
+[part='retry'][hidden] { display: none; }
 
 [part='composer'] {
   display: grid;
