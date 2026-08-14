@@ -37,9 +37,14 @@
     "ai:change:status": "node scripts/ai-change.mjs status",
     "ai:change:validate": "node scripts/ai-change.mjs validate",
     "build": "npm run build --workspaces --if-present",
+    "docs:build": "npm run build -w @karkata/ui && node scripts/docs/run-vitepress.mjs build && node scripts/docs/static-output.mjs",
+    "docs:dev": "npm run build -w @karkata/ui && node scripts/docs/run-vitepress.mjs dev",
+    "docs:preview": "node scripts/docs/run-vitepress.mjs preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:docs": "node --test scripts/docs/*.test.mjs && node scripts/docs/site-contract.mjs",
+    "test:docs:browser": "npm run docs:build && node scripts/docs/browser-smoke.mjs",
     "test:integration:real": "npm run build --workspaces --if-present && node scripts/release/real-provider-smoke.mjs",
     "test:release": "node --test scripts/release/*.test.mjs",
     "test:package": "node scripts/release/package-smoke.mjs",
@@ -52,7 +57,10 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.18",
     "happy-dom": "^20.11.2",
+    "playwright-core": "^1.62.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitepress": "^1.6.4",
+    "vitest": "^4.0.18",
+    "vue": "^3.5.41"
   }
 }

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+website/.vitepress/cache/
+website/.vitepress/dist/
 *.tsbuildinfo
 .DS_Store
-

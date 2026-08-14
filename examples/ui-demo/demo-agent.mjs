@@ -6,23 +6,44 @@ const DEFAULT_DELAYS = Object.freeze({
   completion: 700,
 })
 
-const LOOKUP_CONTENT = 'I found order 1042 and am checking the available delivery window.'
-const LOOKUP_FRAMES = Object.freeze([
-  'I found order 1042',
-  'I found order 1042 and am checking',
-  LOOKUP_CONTENT,
-])
-const COMPLETION_CONTENT = 'Order 1042 is scheduled for Friday at 18 Market Street.'
-const COMPLETION_FRAMES = Object.freeze([
-  'Order 1042 is scheduled',
-  'Order 1042 is scheduled for Friday',
-  COMPLETION_CONTENT,
-])
-
-const SEEDED_HISTORY = Object.freeze([
-  Object.freeze({ role: 'user', content: 'Check order 1042 and summarize its delivery status.' }),
-  Object.freeze({ role: 'assistant', content: 'Order 1042 is ready to ship. The current delivery date is Wednesday.' }),
-])
+const COPY = deepFreeze({
+  en: {
+    lookupFrames: [
+      'I found order 1042',
+      'I found order 1042 and am checking',
+      'I found order 1042 and am checking the available delivery window.',
+    ],
+    completionFrames: [
+      'Order 1042 is scheduled',
+      'Order 1042 is scheduled for Friday',
+      'Order 1042 is scheduled for Friday at 18 Market Street.',
+    ],
+    seededHistory: [
+      { role: 'user', content: 'Check order 1042 and summarize its delivery status.' },
+      { role: 'assistant', content: 'Order 1042 is ready to ship. The current delivery date is Wednesday.' },
+    ],
+    question: 'Use 18 Market Street as the shipping address?',
+    failureMessage: 'The demo provider is temporarily unavailable.',
+  },
+  zh: {
+    lookupFrames: [
+      '已找到订单 1042',
+      '已找到订单 1042，正在检查',
+      '已找到订单 1042，正在检查可用配送时间。',
+    ],
+    completionFrames: [
+      '订单 1042 已安排配送',
+      '订单 1042 已安排在周五配送',
+      '订单 1042 已安排在周五配送到 Market Street 18 号。',
+    ],
+    seededHistory: [
+      { role: 'user', content: '查询订单 1042，并总结配送状态。' },
+      { role: 'assistant', content: '订单 1042 已备好发货，当前配送日期是周三。' },
+    ],
+    question: '使用 Market Street 18 号作为配送地址吗？',
+    failureMessage: '演示服务暂时不可用。',
+  },
+})
 
 export function createDemoAgent(options = {}) {
   return new DemoAgent(options)
@@ -38,17 +59,23 @@ class DemoAgent {
   #runSequence = 0
   #timer
   #delays
+  #scenario
+  #copy
 
-  constructor({ seedHistory = true, delays = {} } = {}) {
+  constructor({ seedHistory = true, delays = {}, scenario = 'order', locale = 'en' } = {}) {
+    if (!['order', 'retryable-error'].includes(scenario)) throw new TypeError('Unknown demo scenario')
+    if (!Object.hasOwn(COPY, locale)) throw new TypeError('Unknown demo locale')
     this.#delays = Object.freeze({ ...DEFAULT_DELAYS, ...delays })
-    this.#history = seedHistory ? structuredClone(SEEDED_HISTORY) : []
+    this.#scenario = scenario
+    this.#copy = COPY[locale]
+    this.#history = seedHistory ? structuredClone(this.#copy.seededHistory) : []
     this.#state = freezeSnapshot(seedHistory
       ? {
           status: 'completed', runId: 'demo-seed', step: 1,
           messages: this.#history,
           result: {
             status: 'completed', runId: 'demo-seed',
-            content: 'Order 1042 is ready to ship. The current delivery date is Wednesday.', steps: 1,
+            content: this.#copy.seededHistory[1].content, steps: 1,
           },
           contextUsage: { usedTokens: 1860, maxTokens: 120000 }, updatedAt: Date.now(),
         }
@@ -138,7 +165,7 @@ class DemoAgent {
 
   #publishAssistant(run) {
     run.messages.push({
-      role: 'assistant', content: LOOKUP_CONTENT,
+      role: 'assistant', content: this.#copy.lookupFrames.at(-1),
       toolCalls: [{ callId: `demo-call-${run.sequence}-lookup`, name: 'lookup_order', input: { orderId: '1042' } }],
     })
     this.#publish({
@@ -155,13 +182,30 @@ class DemoAgent {
     this.#publish({
       status: 'running', runId: run.runId, step: run.steps,
       messages: [...this.#history, ...run.messages],
-      partialResponse: { runId: run.runId, step: run.steps, content: LOOKUP_FRAMES[index] },
+      partialResponse: { runId: run.runId, step: run.steps, content: this.#copy.lookupFrames[index] },
       contextUsage: this.#usage(run.messages),
     })
     this.#schedule(run, this.#delays.stream, () => {
-      if (index + 1 < LOOKUP_FRAMES.length) this.#streamAssistant(run, index + 1)
+      if (this.#scenario === 'retryable-error' && run.sequence === 1 && index === 0) this.#failRetryable(run)
+      else if (index + 1 < this.#copy.lookupFrames.length) this.#streamAssistant(run, index + 1)
       else this.#publishAssistant(run)
     })
+  }
+
+  #failRetryable(run) {
+    this.#activeRun = undefined
+    const error = {
+      code: 'MODEL_NETWORK_ERROR',
+      message: this.#copy.failureMessage,
+      retryable: true,
+    }
+    const result = { status: 'error', runId: run.runId, error, steps: run.steps }
+    this.#publish({
+      status: 'error', runId: run.runId, step: run.steps,
+      messages: this.#history, result, error,
+      contextUsage: this.#usage([]),
+    })
+    run.resolve(result)
   }
 
   #publishToolResult(run) {
@@ -181,7 +225,7 @@ class DemoAgent {
   #askQuestion(run) {
     run.steps = 3
     const callId = `demo-call-${run.sequence}-question`
-    const prompt = 'Use 18 Market Street as the shipping address?'
+    const prompt = this.#copy.question
     run.messages.push({
       role: 'assistant', content: null,
       toolCalls: [{ callId, name: 'ask_user', input: { question: prompt } }],
@@ -199,7 +243,7 @@ class DemoAgent {
   }
 
   #complete(run) {
-    const content = COMPLETION_CONTENT
+    const content = this.#copy.completionFrames.at(-1)
     run.messages.push({ role: 'assistant', content })
     this.#history = [...this.#history, ...run.messages]
     this.#activeRun = undefined
@@ -217,11 +261,11 @@ class DemoAgent {
     this.#publish({
       status: 'running', runId: run.runId, step: run.steps,
       messages: [...this.#history, ...run.messages],
-      partialResponse: { runId: run.runId, step: run.steps, content: COMPLETION_FRAMES[index] },
+      partialResponse: { runId: run.runId, step: run.steps, content: this.#copy.completionFrames[index] },
       contextUsage: this.#usage(run.messages),
     })
     this.#schedule(run, this.#delays.stream, () => {
-      if (index + 1 < COMPLETION_FRAMES.length) this.#streamCompletion(run, index + 1)
+      if (index + 1 < this.#copy.completionFrames.length) this.#streamCompletion(run, index + 1)
       else this.#complete(run)
     })
   }

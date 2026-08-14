@@ -72,6 +72,54 @@ describe('UI demo Agent', () => {
     assert.equal(agent.respond(request.id, 'Continue'), true)
     assert.equal((await run).status, 'completed')
   })
+
+  it('publishes a retryable failure after partial text and succeeds on retry', async () => {
+    const agent = createDemoAgent({
+      seedHistory: false,
+      delays: fast,
+      scenario: 'retryable-error',
+    })
+    const states = []
+    agent.subscribe((state) => states.push(state))
+
+    const first = await agent.send('Check order 1042')
+    assert.deepEqual(first, {
+      status: 'error',
+      runId: 'demo-run-1',
+      error: {
+        code: 'MODEL_NETWORK_ERROR',
+        message: 'The demo provider is temporarily unavailable.',
+        retryable: true,
+      },
+      steps: 1,
+    })
+    assert.ok(states.some((state) => state.partialResponse?.content === 'I found order 1042'))
+    assert.equal(agent.state.status, 'error')
+    assert.deepEqual(agent.state.messages, [])
+    assert.equal(agent.state.partialResponse, undefined)
+
+    const retry = agent.send('Check order 1042')
+    await waitFor(() => agent.state.status === 'waiting_for_input')
+    let request
+    agent.subscribeRequests((value) => { request = value })
+    assert.equal(agent.respond(request.id, 'Continue'), true)
+    assert.equal((await retry).status, 'completed')
+  })
+
+  it('localizes seeded history, questions, and completion for Chinese', async () => {
+    const agent = createDemoAgent({ locale: 'zh', delays: fast })
+    assert.equal(agent.state.messages[0].content, '查询订单 1042，并总结配送状态。')
+
+    const run = agent.send('把订单 1042 改到周五配送')
+    await waitFor(() => agent.state.status === 'waiting_for_input')
+    let request
+    agent.subscribeRequests((value) => { request = value })
+    assert.equal(request.prompt, '使用 Market Street 18 号作为配送地址吗？')
+    assert.equal(agent.respond(request.id, '继续'), true)
+
+    const result = await run
+    assert.equal(result.content, '订单 1042 已安排在周五配送到 Market Street 18 号。')
+  })
 })
 
 async function waitFor(predicate, timeoutMs = 1000) {
