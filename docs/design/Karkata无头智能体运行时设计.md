@@ -207,6 +207,11 @@ const agent = createAgent({
     contextBudget: {
       maxTokens: 120_000,
       estimateTokens: (request, { signal }) => estimateModelInputTokens(request, { signal }),
+      compaction: {
+        triggerTokens: 100_000,
+        targetTokens: 70_000,
+        compactHistory: (history, context) => compactConversationHistory(history, context),
+      },
     },
     humanInput: {},
     maxSteps: 20,
@@ -228,6 +233,8 @@ Core 始终提供不可覆盖的通用默认提示词。`systemPrompt` 是构造
 默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此未来 UI 不会把内部提示词作为对话消息回显。
 
 `contextBudget` 是可选的调用前输入预算。`maxTokens` 由使用方根据模型能力和输出预留确定；`estimateTokens` 接收即将发送给 Adapter 的完整冻结 `LLMRequest` 以及当前 `runId`、`step` 和 `AbortSignal`。Core 不绑定 tokenizer，也不通过 Provider `/models` 猜测上限。
+
+`contextBudget.compaction` 是可选的历史压缩策略。`triggerTokens` 和 `targetTokens` 必须满足 `targetTokens < triggerTokens <= maxTokens`。请求估算超过触发值且存在已提交历史时，Core 把冻结的有效历史交给 `compactHistory`；宿主可删除最旧的完整轮次，或显式调用独立摘要模型返回规范化候选历史。Core 不自动复用主 Adapter，也不假设 Chat Completions 兼容服务具有专有 compaction 端点。由用户会话生成的摘要属于普通会话数据，应保持 user 权限；只有宿主确认可信的内容才可作为 system 消息返回。
 
 建议的公开方法：
 
@@ -429,17 +436,23 @@ const unsubscribe = agent.subscribe((state) => {
 | `maxRetries` | 限制单次模型调用重试 | `2` |
 | `maxToolResultLength` | 防止工具结果无限扩大上下文 | 按字符或 token 限制 |
 | `contextBudget.maxTokens` | 限制完整模型请求的预计输入 token | 由使用方按模型配置 |
+| `contextBudget.compaction.triggerTokens` | 在硬上限前触发历史压缩并保留摘要调用空间 | 小于或等于 `maxTokens` |
+| `contextBudget.compaction.targetTokens` | 压缩候选必须达到的完整请求目标 | 小于 `triggerTokens` |
 
 ### 9.1 上下文增长
 
 工具结果和步骤历史会让上下文持续增长。每次模型调用前，Runtime 对组装完成的同一冻结请求执行估算；估算结果为非负有限整数且不大于 `maxTokens` 时才调用 Adapter。相等值允许调用，超过上限返回不可重试的 `CONTEXT_LIMIT_EXCEEDED`。估算器异常或非法返回值产生安全的 `CONTEXT_ESTIMATION_ERROR`，不调用模型；两类失败都遵守运行消息原子回滚。
 
+启用压缩后，占用大于 `triggerTokens` 且存在有效历史时，Runtime 在主模型调用前执行 `compactHistory`。回调只接收已成功提交或本运行内已暂存压缩过的历史，不接收当前 `runMessages`、临时 system 指导或工具快照。候选历史必须是结构完整的 `AgentMessage[]`：Assistant 至少有内容或 Tool Call，`callId` 全局唯一，Tool Result 与前序调用一一配对且名称一致，不得留下未完成调用。合法候选与未改动的当前运行消息重新组装完整请求并再次估算；只有占用不大于 `targetTokens` 才继续调用模型。
+
+压缩后的历史属于运行级候选。运行成功时，它与本轮消息一起替换原历史；模型失败、压缩失败、中断或超时时全部丢弃，恢复压缩前历史。回调异常、非法候选或未达到目标统一产生不可重试、固定安全消息的 `CONTEXT_COMPACTION_ERROR`。压缩器可以调用模型生成摘要，但模型、Prompt、重试、凭据、合规和成本均由宿主显式控制。Provider 返回且只能原样回传的不透明 compaction item 不属于当前通用消息契约，需要原生 Adapter 单独设计。
+
 响应中的 `TokenUsage` 是事后 Provider 数据，不写入 `contextUsage`，也不在 Runtime 中累计。估算器可同步或异步执行，并接收当前运行的 `AbortSignal`；即使它忽略信号，取消 Promise 竞争和 runId 门禁仍保证及时收敛与迟到结果隔离。
 
 上下文能力分阶段实现：
 
-1. 当前：限制步数和单个工具结果长度，并通过使用方估算器提供完整请求预算与 UI 占用状态。
-2. 后续：在同一请求组装和预算检查点之前引入历史裁剪或摘要，但单独定义策略、回滚与取消契约。
+1. 当前：限制步数和单个工具结果长度，通过使用方估算器提供完整请求预算，并支持宿主注入的历史裁剪或摘要策略。
+2. 后续：按具体 Provider 需求设计原生、不透明上下文项与 Adapter 会话契约。
 3. 再后续：增加 checkpoint 和外部存储，实现跨刷新恢复。
 
 ### 9.2 长时间工具
@@ -715,10 +728,11 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 
 ### 阶段三：生态能力
 
-- 历史摘要策略。
+- 宿主注入的历史摘要与裁剪策略。
 - Human-in-the-Loop 用户输入协议。
 - 基于 Web Component 的可选 `@karkata/ui`。
 - checkpoint 与可插拔持久化。
+- 按需提供原生 Provider 不透明 compaction item 适配。
 
 ## 17. 待后续确定的决策
 

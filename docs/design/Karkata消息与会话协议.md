@@ -206,6 +206,16 @@ await agent.send('开始处理另一个客户')
 
 若启用上下文预算，`CONTEXT_LIMIT_EXCEEDED` 和 `CONTEXT_ESTIMATION_ERROR` 与其他运行错误遵循相同原子提交规则：当前 `runMessages` 被丢弃，之前的 `committedHistory` 保留。`AgentState.contextUsage.usedTokens` 是独立的 UI 预算投影，可以保留最近一次有效预算检查值，不属于会话消息，也不会进入下一次模型请求。`clearHistory()` 清空消息并将其重置为 `0`。
 
+启用历史压缩时，运行还维护一个 `effectiveHistory` 候选：
+
+- 初始等于 `committedHistory`，压缩回调只接收它的冻结副本，不能读取或替换当前 `runMessages`。
+- 回调可以返回最近完整轮次实现确定性裁剪，也可以返回“普通 user 摘要消息 + 最近原文”。来源于对话的摘要不得借压缩过程提升为可信 system 指令。
+- Core 在调用模型前校验候选中的消息形状、`callId` 唯一性及 Tool Call/Result 一一配对，并对重新组装的完整请求再次估算。
+- 运行期间的后续模型步骤使用 `effectiveHistory`；只有最终 `completed` 才以 `effectiveHistory + runMessages` 原子替换历史。
+- `error`、`aborted`、`TIMEOUT`、`CONTEXT_COMPACTION_ERROR` 和候选估算失败都丢弃候选，恢复原 `committedHistory`。
+
+`AgentState.contextUsage.usedTokens` 可先发布压缩前估算，再发布候选估算；终态保留最近一次有效值。历史消息仍遵循原子提交，压缩候选不会因为一次估算成功就提前进入终态历史。
+
 这个设计避免将不完整的 assistant/tool 序列传给下一次 LLM 调用。它不代表工具副作用可以回滚；工具已经完成的外部操作仍然可能存在。
 
 ## 7. 历史与状态投影

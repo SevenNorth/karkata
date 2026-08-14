@@ -1,0 +1,10 @@
+{
+  "id": "history-compaction-policy",
+  "title": "增加历史摘要与裁剪策略",
+  "type": "feature",
+  "status": "archived",
+  "branch": "main",
+  "createdAt": "2026-08-14T01:52:51.171Z",
+  "updatedAt": "2026-08-14T02:22:02.829Z",
+  "archivedAt": "2026-08-14T02:22:02.829Z"
+}

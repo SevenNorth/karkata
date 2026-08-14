@@ -225,12 +225,469 @@ describe('Agent', () => {
     expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 14 })
   })
 
+  it('compacts frozen committed history above the trigger and re-estimates the candidate request', async () => {
+    const llm = new ScriptedLLM([message('first answer'), message('second answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(6)
+    const compactHistory = vi.fn(() => [{ role: 'user' as const, content: 'Previous conversation summary' }])
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: { triggerTokens: 10, targetTokens: 7, compactHistory },
+      },
+    })
+
+    await agent.send('first question')
+    await expect(agent.send('second question')).resolves.toMatchObject({ status: 'completed' })
+
+    expect(compactHistory).toHaveBeenCalledOnce()
+    const [history, context] = compactHistory.mock.calls[0]!
+    expect(history).toEqual([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+    ])
+    expect(Object.isFrozen(history)).toBe(true)
+    expect(Object.isFrozen(history[0])).toBe(true)
+    expect(context).toMatchObject({
+      runId: expect.any(String),
+      step: 1,
+      signal: expect.any(AbortSignal),
+      usedTokens: 12,
+      targetTokens: 7,
+      maxTokens: 20,
+    })
+    expect(Object.isFrozen(context)).toBe(true)
+    expect(estimateTokens).toHaveBeenCalledTimes(3)
+    expect(llm.requests[1]!.messages).toEqual([
+      expect.objectContaining({ role: 'system' }),
+      { role: 'user', content: 'Previous conversation summary' },
+      { role: 'user', content: 'second question' },
+    ])
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 6 })
+  })
+
+  it('does not compact when context usage equals the trigger', async () => {
+    const compactHistory = vi.fn(() => [])
+    const llm = new ScriptedLLM([message('done')])
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens: () => 10,
+        compaction: { triggerTokens: 10, targetTokens: 5, compactHistory },
+      },
+    })
+
+    await expect(agent.send('within threshold')).resolves.toMatchObject({ status: 'completed' })
+
+    expect(compactHistory).not.toHaveBeenCalled()
+    expect(llm.requests).toHaveLength(1)
+  })
+
+  it('returns a safe compaction error when the compactor throws', async () => {
+    const llm = new ScriptedLLM([message('first answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: {
+          triggerTokens: 10,
+          targetTokens: 7,
+          compactHistory: () => { throw new Error('Authorization: Bearer compactor-secret') },
+        },
+      },
+    })
+    await agent.send('first question')
+
+    await expect(agent.send('second question')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'CONTEXT_COMPACTION_ERROR', message: 'Context compaction failed', retryable: false },
+    })
+    expect(llm.requests).toHaveLength(1)
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+    ])
+    expect(JSON.stringify(agent.state)).not.toContain('compactor-secret')
+  })
+
+  it.each([
+    ['a non-array result', null],
+    ['an invalid message value', [null]],
+    ['an empty text message', [{ role: 'user', content: '   ' }]],
+    ['an empty assistant message', [{ role: 'assistant', content: null }]],
+    ['an assistant with invalid content', [{ role: 'assistant', content: 42 }]],
+    ['an assistant with invalid tool calls', [{ role: 'assistant', content: 'answer', toolCalls: 'invalid' }]],
+    ['an invalid tool call', [{ role: 'assistant', content: null, toolCalls: [{ callId: '', name: 'lookup', input: {} }] }]],
+    ['an unmatched tool result', [{ role: 'tool', callId: 'missing', name: 'lookup', content: 'result', isError: false }]],
+    ['an invalid tool result', [
+      { role: 'assistant', content: null, toolCalls: [{ callId: 'call-1', name: 'lookup', input: {} }] },
+      { role: 'tool', callId: 'call-1', name: 'lookup', content: 42, isError: false },
+    ]],
+    ['an unresolved tool call', [{ role: 'assistant', content: null, toolCalls: [{ callId: 'call-1', name: 'lookup', input: {} }] }]],
+    ['a message before a pending tool result', [
+      { role: 'assistant', content: null, toolCalls: [{ callId: 'call-1', name: 'lookup', input: {} }] },
+      { role: 'user', content: 'continue' },
+    ]],
+    ['a mismatched tool result name', [
+      { role: 'assistant', content: null, toolCalls: [{ callId: 'call-1', name: 'lookup', input: {} }] },
+      { role: 'tool', callId: 'call-1', name: 'other', content: 'result', isError: false },
+    ]],
+    ['a duplicate tool call ID', [
+      { role: 'assistant', content: null, toolCalls: [
+        { callId: 'call-1', name: 'lookup', input: {} },
+        { callId: 'call-1', name: 'other', input: {} },
+      ] },
+      { role: 'tool', callId: 'call-1', name: 'lookup', content: 'result', isError: false },
+    ]],
+    ['an unsupported message role', [{ role: 'developer', content: 'invalid' }]],
+  ])('rejects %s from the compactor before invoking the model', async (_label, candidate) => {
+    const llm = new ScriptedLLM([message('first answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: {
+          triggerTokens: 10,
+          targetTokens: 7,
+          compactHistory: () => candidate as never,
+        },
+      },
+    })
+    await agent.send('first question')
+
+    await expect(agent.send('second question')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'CONTEXT_COMPACTION_ERROR', message: 'Context compaction failed', retryable: false },
+    })
+    expect(llm.requests).toHaveLength(1)
+    expect(estimateTokens).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a valid candidate that does not reach the target budget', async () => {
+    const llm = new ScriptedLLM([message('first answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(8)
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: {
+          triggerTokens: 10,
+          targetTokens: 7,
+          compactHistory: () => [{ role: 'user', content: 'Still too large' }],
+        },
+      },
+    })
+    await agent.send('first question')
+
+    await expect(agent.send('second question')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'CONTEXT_COMPACTION_ERROR', message: 'Context compaction failed', retryable: false },
+    })
+    expect(llm.requests).toHaveLength(1)
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 8 })
+  })
+
+  it('does not compact current run messages when there is no committed history', async () => {
+    const compactHistory = vi.fn(() => [])
+    const llm = new ScriptedLLM([message('done')])
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens: () => 15,
+        compaction: { triggerTokens: 10, targetTokens: 7, compactHistory },
+      },
+    })
+
+    await expect(agent.send('large current request')).resolves.toMatchObject({ status: 'completed' })
+
+    expect(compactHistory).not.toHaveBeenCalled()
+    expect(llm.requests).toHaveLength(1)
+  })
+
+  it('uses staged compacted history throughout a multi-step run and commits it on success', async () => {
+    const llm = new ScriptedLLM([
+      message('first answer'),
+      toolCall('call-1', 'lookup', {}),
+      message('second answer'),
+      message('third answer'),
+    ])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(6)
+      .mockReturnValueOnce(9)
+      .mockReturnValueOnce(9)
+    const compactHistory = vi.fn(() => [{ role: 'user' as const, content: 'Previous conversation summary' }])
+    const agent = new Agent({
+      llm,
+      tools: [{ name: 'lookup', description: 'Lookup', inputSchema: z.object({}), execute: () => 'found' }],
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: { triggerTokens: 10, targetTokens: 7, compactHistory },
+      },
+    })
+    await agent.send('first question')
+
+    await expect(agent.send('second question')).resolves.toMatchObject({ status: 'completed' })
+
+    expect(compactHistory).toHaveBeenCalledOnce()
+    expect(llm.requests[1]!.messages).toContainEqual({ role: 'user', content: 'Previous conversation summary' })
+    expect(llm.requests[2]!.messages).toContainEqual({ role: 'user', content: 'Previous conversation summary' })
+    expect(llm.requests[2]!.messages.at(-1)).toMatchObject({ role: 'tool', callId: 'call-1', content: 'found' })
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'Previous conversation summary' },
+      { role: 'user', content: 'second question' },
+      expect.objectContaining({ role: 'assistant', toolCalls: [expect.objectContaining({ callId: 'call-1' })] }),
+      expect.objectContaining({ role: 'tool', callId: 'call-1' }),
+      { role: 'assistant', content: 'second answer' },
+    ])
+
+    await agent.send('third question')
+    expect(llm.requests[3]!.messages).not.toContainEqual({ role: 'user', content: 'first question' })
+    expect(llm.requests[3]!.messages).toContainEqual({ role: 'user', content: 'Previous conversation summary' })
+  })
+
+  it('rolls back staged compacted history when the model fails', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce(message('first answer'))
+      .mockRejectedValueOnce(new Error('model failed'))
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(6)
+    const agent = new Agent({
+      llm: { invoke },
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: {
+          triggerTokens: 10,
+          targetTokens: 7,
+          compactHistory: () => [{ role: 'user', content: 'Previous conversation summary' }],
+        },
+      },
+    })
+    await agent.send('first question')
+
+    await expect(agent.send('second question')).resolves.toMatchObject({ status: 'error', error: { code: 'MODEL_ERROR' } })
+
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+    ])
+  })
+
+  it('rolls back staged compacted history when candidate estimation fails', async () => {
+    const llm = new ScriptedLLM([message('first answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+      .mockImplementationOnce(() => { throw new Error('candidate estimate failed') })
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: {
+          triggerTokens: 10,
+          targetTokens: 7,
+          compactHistory: () => [{ role: 'user', content: 'Previous conversation summary' }],
+        },
+      },
+    })
+    await agent.send('first question')
+
+    await expect(agent.send('second question')).resolves.toMatchObject({
+      status: 'error',
+      error: { code: 'CONTEXT_ESTIMATION_ERROR' },
+    })
+
+    expect(llm.requests).toHaveLength(1)
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+    ])
+  })
+
+  it('settles and ignores a compaction result that arrives after cancellation', async () => {
+    let resolveCompaction!: (history: readonly LLMRequest['messages'][number][]) => void
+    let notifyStarted!: () => void
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve })
+    const llm = new ScriptedLLM([message('first answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: {
+          triggerTokens: 10,
+          targetTokens: 7,
+          compactHistory: () => new Promise((resolve) => { resolveCompaction = resolve; notifyStarted() }),
+        },
+      },
+    })
+    await agent.send('first question')
+    const run = agent.send('second question')
+    await started
+
+    agent.abort()
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    resolveCompaction([{ role: 'user', content: 'Late summary' }])
+    await Promise.resolve()
+
+    expect(llm.requests).toHaveLength(1)
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+    ])
+    expect(agent.state.contextUsage).toEqual({ maxTokens: 20, usedTokens: 12 })
+  })
+
+  it('times out while a compactor ignores its signal', async () => {
+    vi.useFakeTimers()
+    try {
+      let notifyStarted!: () => void
+      const started = new Promise<void>((resolve) => { notifyStarted = resolve })
+      const llm = new ScriptedLLM([message('first answer')])
+      const estimateTokens = vi.fn()
+        .mockReturnValueOnce(4)
+        .mockReturnValueOnce(12)
+      const agent = new Agent({
+        llm,
+        timeoutMs: 50,
+        contextBudget: {
+          maxTokens: 20,
+          estimateTokens,
+          compaction: {
+            triggerTokens: 10,
+            targetTokens: 7,
+            compactHistory: () => { notifyStarted(); return new Promise(() => undefined) },
+          },
+        },
+      })
+      await agent.send('first question')
+      const run = agent.send('second question')
+      await started
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      await expect(run).resolves.toMatchObject({ status: 'error', error: { code: 'TIMEOUT' } })
+      expect(llm.requests).toHaveLength(1)
+      expect(agent.state.messages).toEqual([
+        { role: 'user', content: 'first question' },
+        { role: 'assistant', content: 'first answer' },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('disposes while a compactor ignores its signal and isolates the late candidate', async () => {
+    let resolveCompaction!: (history: readonly LLMRequest['messages'][number][]) => void
+    let notifyStarted!: () => void
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve })
+    const llm = new ScriptedLLM([message('first answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(12)
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: {
+          triggerTokens: 10,
+          targetTokens: 7,
+          compactHistory: () => new Promise((resolve) => { resolveCompaction = resolve; notifyStarted() }),
+        },
+      },
+    })
+    await agent.send('first question')
+    const run = agent.send('second question')
+    await started
+
+    await agent.dispose()
+    await expect(run).resolves.toMatchObject({ status: 'aborted' })
+    resolveCompaction([{ role: 'user', content: 'Late summary' }])
+    await Promise.resolve()
+
+    expect(agent.state).toMatchObject({ status: 'disposed', messages: [] })
+    expect(llm.requests).toHaveLength(1)
+  })
+
+  it('supports deterministic trimming by retaining only recent complete turns', async () => {
+    const llm = new ScriptedLLM([message('first answer'), message('second answer'), message('third answer')])
+    const estimateTokens = vi.fn()
+      .mockReturnValueOnce(4)
+      .mockReturnValueOnce(8)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(6)
+    const compactHistory = vi.fn((history: readonly LLMRequest['messages'][number][]) => history.slice(-2))
+    const agent = new Agent({
+      llm,
+      contextBudget: {
+        maxTokens: 20,
+        estimateTokens,
+        compaction: { triggerTokens: 10, targetTokens: 7, compactHistory },
+      },
+    })
+    await agent.send('first question')
+    await agent.send('second question')
+
+    await expect(agent.send('third question')).resolves.toMatchObject({ status: 'completed' })
+
+    expect(compactHistory).toHaveBeenCalledOnce()
+    expect(llm.requests[2]!.messages).not.toContainEqual({ role: 'user', content: 'first question' })
+    expect(llm.requests[2]!.messages).toContainEqual({ role: 'user', content: 'second question' })
+    expect(agent.state.messages).toEqual([
+      { role: 'user', content: 'second question' },
+      { role: 'assistant', content: 'second answer' },
+      { role: 'user', content: 'third question' },
+      { role: 'assistant', content: 'third answer' },
+    ])
+  })
+
   it('rejects invalid context budget configuration', () => {
     const llm = new ScriptedLLM([])
 
     expect(() => new Agent({ llm, contextBudget: { maxTokens: 0, estimateTokens: () => 0 } })).toThrow('maxTokens must be a positive finite integer')
     expect(() => new Agent({ llm, contextBudget: { maxTokens: 1.5, estimateTokens: () => 0 } })).toThrow('maxTokens must be a positive finite integer')
     expect(() => new Agent({ llm, contextBudget: { maxTokens: 10, estimateTokens: undefined as never } })).toThrow('estimateTokens must be a function')
+  })
+
+  it('rejects invalid context compaction configuration', () => {
+    const llm = new ScriptedLLM([])
+    const compactHistory = () => []
+    const contextBudget = { maxTokens: 10, estimateTokens: () => 0 }
+
+    expect(() => new Agent({ llm, contextBudget: { ...contextBudget, compaction: null as never } })).toThrow('compaction must be a configuration object')
+    expect(() => new Agent({ llm, contextBudget: { ...contextBudget, compaction: { triggerTokens: 0, targetTokens: 1, compactHistory } } })).toThrow('triggerTokens must be a positive finite integer')
+    expect(() => new Agent({ llm, contextBudget: { ...contextBudget, compaction: { triggerTokens: 11, targetTokens: 1, compactHistory } } })).toThrow('triggerTokens must not exceed maxTokens')
+    expect(() => new Agent({ llm, contextBudget: { ...contextBudget, compaction: { triggerTokens: 8, targetTokens: 0, compactHistory } } })).toThrow('targetTokens must be a positive finite integer')
+    expect(() => new Agent({ llm, contextBudget: { ...contextBudget, compaction: { triggerTokens: 8, targetTokens: 8, compactHistory } } })).toThrow('targetTokens must be less than triggerTokens')
+    expect(() => new Agent({ llm, contextBudget: { ...contextBudget, compaction: { triggerTokens: 8, targetTokens: 4, compactHistory: undefined as never } } })).toThrow('compactHistory must be a function')
   })
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5])('reports an invalid token estimate %s without calling the model', async (estimate) => {

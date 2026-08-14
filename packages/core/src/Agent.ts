@@ -1,10 +1,11 @@
 import { awaitWithAbort } from './abort.js'
 import { AgentBusyError, AgentDisposedError, errorMessage, ModelError, ToolRegistrationError } from './errors.js'
 import { createHumanInputRequest, HUMAN_INPUT_TOOL, HUMAN_INPUT_TOOL_NAME, parseHumanInput, validateHumanInputConfig } from './humanInput.js'
+import { validateCommittedHistory } from './history.js'
 import { assembleSystemMessage, createInstructionResolverContext, PromptAssemblyError } from './prompt.js'
 import { ToolRegistry, type ToolRegistration } from './ToolRegistry.js'
 import { serializeToolOutput } from './toolOutput.js'
-import type { AgentConfig, AgentError, AgentMessage, AgentRequest, AgentRequestListener, AgentResult, AgentState, AgentStateListener, AssistantMessage, ContextEstimationContext, InitialTool, LLMRequest, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
+import type { AgentConfig, AgentError, AgentMessage, AgentRequest, AgentRequestListener, AgentResult, AgentState, AgentStateListener, AssistantMessage, ContextCompactionContext, ContextEstimationContext, InitialTool, LLMRequest, RegisteredToolInfo, Tool, ToolResultMessage, UserMessage } from './types.js'
 
 interface Run { runId: string; controller: AbortController; termination: 'manual' | 'timeout' | 'dispose' | undefined; timer: ReturnType<typeof setTimeout>; step: number }
 interface PendingHumanInput {
@@ -15,6 +16,10 @@ interface PendingHumanInput {
 
 class ContextEstimationError extends Error {
   override readonly name = 'ContextEstimationError'
+}
+
+class ContextCompactionError extends Error {
+  override readonly name = 'ContextCompactionError'
 }
 
 export class Agent {
@@ -40,6 +45,17 @@ export class Agent {
       }
       if (typeof config.contextBudget.estimateTokens !== 'function') {
         throw new TypeError('contextBudget.estimateTokens must be a function')
+      }
+      const compaction = config.contextBudget.compaction
+      if (compaction !== undefined) {
+        if (compaction === null || typeof compaction !== 'object' || Array.isArray(compaction)) {
+          throw new TypeError('contextBudget.compaction must be a configuration object')
+        }
+        if (!isPositiveInteger(compaction.triggerTokens)) throw new TypeError('contextBudget.compaction.triggerTokens must be a positive finite integer')
+        if (compaction.triggerTokens > config.contextBudget.maxTokens) throw new TypeError('contextBudget.compaction.triggerTokens must not exceed maxTokens')
+        if (!isPositiveInteger(compaction.targetTokens)) throw new TypeError('contextBudget.compaction.targetTokens must be a positive finite integer')
+        if (compaction.targetTokens >= compaction.triggerTokens) throw new TypeError('contextBudget.compaction.targetTokens must be less than triggerTokens')
+        if (typeof compaction.compactHistory !== 'function') throw new TypeError('contextBudget.compaction.compactHistory must be a function')
       }
     }
     validateHumanInputConfig(config.humanInput)
@@ -102,6 +118,7 @@ export class Agent {
     const runId = globalThis.crypto.randomUUID(); const controller = new AbortController()
     const run: Run = { runId, controller, termination: undefined, step: 0, timer: setTimeout(() => this.#terminate(run, 'timeout'), this.#config.timeoutMs) }
     this.#run = run; this.#runMessages = [user]
+    let effectiveHistory = this.#history
     this.#commit({ status: 'running', runId, step: 0, messages: [...this.#history, ...this.#runMessages], result: undefined, error: undefined, activeTool: undefined })
     try {
       while (run.step < this.#config.maxSteps) {
@@ -117,14 +134,26 @@ export class Agent {
           context: createInstructionResolverContext(run.runId, run.step, toolInfo, run.controller.signal),
         })
         this.#ensureCurrent(run)
-        let request: LLMRequest = { messages: [systemMessage, ...this.#history, ...this.#runMessages], tools }
+        let request: LLMRequest = { messages: [systemMessage, ...effectiveHistory, ...this.#runMessages], tools }
         if (this.#config.contextBudget) {
-          request = Object.freeze({
-            messages: deepFreeze(structuredClone(request.messages)),
-            tools: Object.freeze(request.tools.map((tool) => Object.freeze(tool))),
-          })
-          const budgetError = await this.#checkContextBudget(run, request)
-          if (budgetError) return this.#fail(run, budgetError)
+          request = freezeRequest(request)
+          let usedTokens = await this.#estimateContextTokens(run, request)
+          const compaction = this.#config.contextBudget.compaction
+          if (compaction && usedTokens > compaction.triggerTokens && effectiveHistory.length > 0) {
+            effectiveHistory = await this.#compactHistory(run, effectiveHistory, usedTokens)
+            request = freezeRequest({ messages: [systemMessage, ...effectiveHistory, ...this.#runMessages], tools })
+            usedTokens = await this.#estimateContextTokens(run, request)
+            if (usedTokens > compaction.targetTokens) {
+              return this.#fail(run, { code: 'CONTEXT_COMPACTION_ERROR', message: 'Context compaction failed', retryable: false })
+            }
+          }
+          if (usedTokens > this.#config.contextBudget.maxTokens) {
+            return this.#fail(run, {
+              code: 'CONTEXT_LIMIT_EXCEEDED',
+              message: `Context usage ${usedTokens} exceeds the maximum of ${this.#config.contextBudget.maxTokens} tokens`,
+              retryable: false,
+            })
+          }
         }
         const response = await awaitWithAbort(Promise.resolve(this.#config.llm.invoke(request, { signal: run.controller.signal })), run.controller.signal)
         this.#ensureCurrent(run)
@@ -132,7 +161,7 @@ export class Agent {
         this.#runMessages.push(response.message)
         if (!response.message.toolCalls?.length) {
           const content = response.message.content ?? ''
-          this.#history.push(...this.#runMessages); this.#runMessages = []
+          this.#history = [...effectiveHistory, ...this.#runMessages]; this.#runMessages = []
           const result: AgentResult = { status: 'completed', runId, content, steps: run.step }
           this.#finish(run, result); return result
         }
@@ -160,6 +189,9 @@ export class Agent {
       if (error instanceof ContextEstimationError) {
         return this.#fail(run, { code: 'CONTEXT_ESTIMATION_ERROR', message: 'Context token estimation failed', retryable: false })
       }
+      if (error instanceof ContextCompactionError) {
+        return this.#fail(run, { code: 'CONTEXT_COMPACTION_ERROR', message: 'Context compaction failed', retryable: false })
+      }
       if (error instanceof ModelError) {
         return this.#fail(run, {
           code: error.code,
@@ -185,9 +217,9 @@ export class Agent {
     return this.#disposePromise
   }
 
-  async #checkContextBudget(run: Run, request: LLMRequest): Promise<AgentError | undefined> {
+  async #estimateContextTokens(run: Run, request: LLMRequest): Promise<number> {
     const budget = this.#config.contextBudget
-    if (!budget) return undefined
+    if (!budget) return 0
     let usedTokens: unknown
     try {
       const context = Object.freeze({
@@ -209,11 +241,34 @@ export class Agent {
     }
     const tokens = usedTokens as number
     this.#commit({ contextUsage: { maxTokens: budget.maxTokens, usedTokens: tokens } })
-    if (tokens <= budget.maxTokens) return undefined
-    return {
-      code: 'CONTEXT_LIMIT_EXCEEDED',
-      message: `Context usage ${tokens} exceeds the maximum of ${budget.maxTokens} tokens`,
-      retryable: false,
+    return tokens
+  }
+
+  async #compactHistory(run: Run, history: readonly AgentMessage[], usedTokens: number): Promise<AgentMessage[]> {
+    const budget = this.#config.contextBudget
+    const compaction = budget?.compaction
+    if (!budget || !compaction) return [...history]
+    try {
+      const context = Object.freeze({
+        runId: run.runId,
+        step: run.step,
+        signal: run.controller.signal,
+        usedTokens,
+        targetTokens: compaction.targetTokens,
+        maxTokens: budget.maxTokens,
+      }) satisfies ContextCompactionContext
+      const frozenHistory = deepFreeze(structuredClone(history))
+      const result = await awaitWithAbort(
+        Promise.resolve().then(() => compaction.compactHistory(frozenHistory, context)),
+        run.controller.signal,
+      )
+      this.#ensureCurrent(run)
+      const candidate: unknown = structuredClone(result)
+      validateCommittedHistory(candidate)
+      return [...candidate]
+    } catch (error) {
+      if (run.controller.signal.aborted) throw error
+      throw new ContextCompactionError('Context compaction failed')
     }
   }
 
@@ -281,4 +336,15 @@ function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
   const object = value as Record<PropertyKey, unknown>
   for (const key of Reflect.ownKeys(object)) deepFreeze(object[key], seen)
   try { return Object.freeze(value) } catch { return value }
+}
+
+function freezeRequest(request: LLMRequest): LLMRequest {
+  return Object.freeze({
+    messages: deepFreeze(structuredClone(request.messages)),
+    tools: Object.freeze(request.tools.map((tool) => Object.freeze(tool))),
+  })
+}
+
+function isPositiveInteger(value: number): boolean {
+  return Number.isFinite(value) && Number.isInteger(value) && value > 0
 }

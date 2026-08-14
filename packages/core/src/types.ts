@@ -52,6 +52,25 @@ export type ContextTokenEstimator = (
 export interface ContextBudgetConfig {
   readonly maxTokens: number
   readonly estimateTokens: ContextTokenEstimator
+  readonly compaction?: ContextCompactionConfig
+}
+
+export interface ContextCompactionContext {
+  readonly runId: string
+  readonly step: number
+  readonly signal: AbortSignal
+  readonly usedTokens: number
+  readonly targetTokens: number
+  readonly maxTokens: number
+}
+export type ContextHistoryCompactor = (
+  history: readonly AgentMessage[],
+  context: ContextCompactionContext,
+) => readonly AgentMessage[] | Promise<readonly AgentMessage[]>
+export interface ContextCompactionConfig {
+  readonly triggerTokens: number
+  readonly targetTokens: number
+  readonly compactHistory: ContextHistoryCompactor
 }
 
 export type HumanInputConfig = Readonly<Record<string, never>>
@@ -124,7 +143,7 @@ export type AgentErrorCode =
   | ModelErrorCode | 'MODEL_ERROR' | 'TOOL_NOT_FOUND' | 'TOOL_CHANGED' | 'TOOL_INVALID_INPUT'
   | 'TOOL_EXECUTION_ERROR' | 'MAX_STEPS_EXCEEDED' | 'TIMEOUT' | 'ABORTED'
   | 'TOOL_RESULT_TOO_LARGE' | 'INSTRUCTION_RESOLUTION_ERROR' | 'INSTRUCTIONS_TOO_LARGE'
-  | 'CONTEXT_LIMIT_EXCEEDED' | 'CONTEXT_ESTIMATION_ERROR' | 'INTERNAL_ERROR'
+  | 'CONTEXT_LIMIT_EXCEEDED' | 'CONTEXT_ESTIMATION_ERROR' | 'CONTEXT_COMPACTION_ERROR' | 'INTERNAL_ERROR'
 
 export interface AgentError {
   code: AgentErrorCode

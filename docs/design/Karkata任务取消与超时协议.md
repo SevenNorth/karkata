@@ -113,6 +113,7 @@ function awaitWithAbort<T>(
 - 可选上下文 Provider。
 - `resolveInstructions()` 动态指导函数。
 - `contextBudget.estimateTokens()` 上下文 token 估算器。
+- `contextBudget.compaction.compactHistory()` 历史压缩回调。
 - Human-in-the-Loop 用户回答等待。
 - Runtime 中任何可能长时间等待的用户回调。
 
@@ -130,6 +131,7 @@ Runtime 一旦因手动取消或超时停止等待，底层操作的任何迟到
 - 不向订阅者发送新运行状态。
 - 不调用后续 LLM，也不提交 Resolver 的迟到指导。
 - 不提交迟到的上下文估算或更新 `contextUsage`。
+- 不提交迟到的压缩候选，不重新估算候选，也不调用后续 LLM。
 - 不接受迟到的 Human-in-the-Loop 回答，也不恢复旧运行或追加回答 Tool Result。
 
 每个异步续体在提交状态前必须确认：
@@ -201,6 +203,7 @@ Runtime 可以及时停止等待，但工具内部的 HTTP 请求、定时器或
 - 工具 Promise 永不解析时，整体超时仍使 `send()` 返回 `error/TIMEOUT`。
 - 取消后工具迟到 resolve 或 reject 不改变历史和状态。
 - 旧运行的迟到回调不会污染新运行。
+- 压缩回调忽略 signal 时，手动取消和整体超时仍及时收敛；迟到候选不替换已提交历史或更新占用状态。
 - 手动取消与超时同时发生时，只提交一个终态。
 - `dispose()` 在运行中调用时可等待且最终禁用 Agent。
 

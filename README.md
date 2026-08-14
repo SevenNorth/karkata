@@ -42,6 +42,11 @@ const agent = createAgent({
     contextBudget: {
       maxTokens: 120_000,
       estimateTokens: (request, { signal }) => estimateModelInputTokens(request, { signal }),
+      compaction: {
+        triggerTokens: 100_000,
+        targetTokens: 70_000,
+        compactHistory: (history, context) => compactConversationHistory(history, context),
+      },
     },
     humanInput: {},
   },
@@ -76,7 +81,9 @@ Karkata always sends a built-in runtime system prompt. `systemPrompt` adds stati
 
 Model failures are exposed as structured `AgentError` values with a stable `code`, safe `message`, `retryable` flag, and optional HTTP `statusCode`. OpenAI-compatible calls distinguish network, authentication, rate-limit, invalid-response, and provider failures; only network failures, HTTP 429, and HTTP 5xx are retried. Provider response bodies, request bodies, authorization data, and original error causes are not copied into `AgentResult` or `AgentState`. Custom adapters can throw the Core `ModelError` class to participate in the same classification contract; unclassified errors remain `MODEL_ERROR` and are not retryable.
 
-Optional `contextBudget` protects each model call before it is sent. The estimator receives the complete frozen request, including system instructions, committed history, current run messages, and tool schemas. `state.contextUsage` exposes only `{ maxTokens, usedTokens }` for UI rendering; `usedTokens` is the latest request estimate, not cumulative API usage. Estimates equal to the limit are allowed, while larger requests fail with `CONTEXT_LIMIT_EXCEEDED` without calling the model or committing the failed run. Karkata does not choose a tokenizer or compress history automatically; applications should provide an estimator appropriate for their model.
+Optional `contextBudget` protects each model call before it is sent. The estimator receives the complete frozen request, including system instructions, committed history, current run messages, and tool schemas. `state.contextUsage` exposes only `{ maxTokens, usedTokens }` for UI rendering; `usedTokens` is the latest request estimate, not cumulative API usage. Estimates equal to the limit are allowed, while larger requests fail with `CONTEXT_LIMIT_EXCEEDED` without calling the model or committing the failed run.
+
+Optional `contextBudget.compaction` adds application-controlled history compression. When an estimate exceeds `triggerTokens`, `compactHistory` receives only frozen, successfully committed history plus the current signal and budget metadata. It can remove old complete turns or call a separately configured model to return a summarized `AgentMessage[]`; current run messages and tool schemas cannot be replaced. Karkata validates Tool Call/Result pairing, rebuilds the complete request, and requires the new estimate to be at most `targetTokens`. The candidate history is committed only if the run succeeds. Set the trigger below the provider's hard context limit so a model-based summarizer still has headroom, and keep summaries derived from conversation content at ordinary user-message privilege rather than treating them as trusted system instructions. Karkata does not choose a tokenizer, summarization model, or provider-specific compaction endpoint.
 
 Optional `humanInput: {}` enables Human-in-the-Loop questions. Karkata exposes a reserved `ask_user` tool to the model; when it is called, `state.status` becomes `waiting_for_input` and `subscribeRequests()` publishes a frozen request. The host resumes the same run with `respond(request.id, answer)`. Waiting obeys the run's existing timeout, `abort()`, and `dispose()` semantics, and late or duplicate responses are ignored. This model-initiated question is not an authorization boundary: applications must still enforce permissions for sensitive tools.
 
