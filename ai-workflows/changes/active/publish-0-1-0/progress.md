@@ -2,10 +2,10 @@
 
 ## 当前状态
 
-- 当前任务：任务 5，准备按依赖顺序发布四包
-- TDD 阶段：scope 迁移、完整门禁和 publish dry-run 已完成
-- 最后完成：四个 `@karkata-ai/*@0.1.0` dry-run 与未发布状态复核通过
-- 阻塞项：无；发布前仍需确认 granular token 对新组织具有 read/write 与 bypass 2FA 权限
+- 当前任务：任务 7，创建 `v0.1.0` tag 和 GitHub Release
+- TDD 阶段：scope 迁移、四包发布和 registry 消费验证已完成
+- 最后完成：四个 `@karkata-ai/*@0.1.0` 已发布，registry tarball 消费 smoke 通过
+- 阻塞项：无
 
 ## 已修改文件
 
@@ -38,7 +38,10 @@
 - 迁移后 `npm run check`：182 项测试与四包构建通过；`npm run test:docs` 12 项通过；release 7 项通过；coverage 90.52% statements/94.45% lines。
 - `npm run test:package`：四个 tarball 通过；`npm pack --workspaces --dry-run --json` 与四包 `npm publish --dry-run --json` 均通过，文件数依次为 44、16、12、20。
 - `npm audit --omit=dev`：0 vulnerabilities；当前代码和长期文档无原 scope 字面引用，历史归档除外。
+- 四包真实发布：`@karkata-ai/core`、`@karkata-ai/openai-compatible`、`@karkata-ai/javascript`、`@karkata-ai/ui` 均成功返回 `+ ...@0.1.0`。
+- registry 精确版本 API：四包均返回 `0.1.0`，三个下游包的 Core 依赖均为 `@karkata-ai/core@0.1.0`。
+- 首次标准名称安装短暂命中 npm packument 的旧 404；改用 API 返回的官方 registry tarball URL 后，四包安装、TypeScript、ESM、Provider 构造和 `@karkata-ai/ui/web-component` 验证通过。
 
 ## 下一步
 
-- 提交并推送 scope 迁移及发布记录；随后从 Core 开始真实发布，任一失败立即停止。
+- 提交并推送发布证据，创建并推送 annotated `v0.1.0` tag，再创建并核对 GitHub Release。
