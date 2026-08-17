@@ -1,23 +1,19 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { pages } from '../../website/page-manifest.mjs'
 
-const requiredRoutes = [
-  'index.html',
-  'en/index.html',
-  'guide/quick-start.html',
-  'en/guide/quick-start.html',
-  'ui/index.html',
-  'en/ui/index.html',
-  'guide/security.html',
-  'en/guide/security.html',
-]
+const requiredRoutes = staticRoutesForPages(pages)
 
-export async function validateStaticOutput(root, { base }) {
+export function staticRoutesForPages(pageManifest) {
+  return pageManifest.flatMap(({ zh, en }) => [routeToOutput(zh), routeToOutput(en)])
+}
+
+export async function validateStaticOutput(root, { base, routes = requiredRoutes }) {
   const errors = []
   const files = await listFiles(root)
   const fileSet = new Set(files)
-  for (const route of requiredRoutes) {
+  for (const route of routes) {
     if (!fileSet.has(route)) errors.push(`missing static route ${route}`)
   }
 
@@ -32,6 +28,12 @@ export async function validateStaticOutput(root, { base }) {
     }
   }
   return errors
+}
+
+function routeToOutput(route) {
+  const path = route.replace(/^\//, '')
+  if (!path || path.endsWith('/')) return `${path}index.html`
+  return `${path}.html`
 }
 
 async function listFiles(root, directory = root) {

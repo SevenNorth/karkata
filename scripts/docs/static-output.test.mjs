@@ -3,7 +3,14 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, it } from 'node:test'
-import { validateStaticOutput } from './static-output.mjs'
+import { staticRoutesForPages, validateStaticOutput } from './static-output.mjs'
+
+const fixtureRoutes = [
+  'index.html', 'en/index.html',
+  'guide/quick-start.html', 'en/guide/quick-start.html',
+  'ui/index.html', 'en/ui/index.html',
+  'guide/security.html', 'en/guide/security.html',
+]
 
 const temporaryRoots = []
 
@@ -24,7 +31,7 @@ describe('documentation static output', () => {
       'en/guide/security.html': '<main>Security</main>',
     })
 
-    assert.deepEqual(await validateStaticOutput(root, { base: '/karkata/' }), [])
+    assert.deepEqual(await validateStaticOutput(root, { base: '/karkata/', routes: fixtureRoutes }), [])
   })
 
   it('rejects missing routes, unbased assets, and remote executable resources', async () => {
@@ -35,10 +42,17 @@ describe('documentation static output', () => {
       ].join(''),
     })
 
-    const errors = await validateStaticOutput(root, { base: '/karkata/' })
+    const errors = await validateStaticOutput(root, { base: '/karkata/', routes: fixtureRoutes })
     assert.ok(errors.some((error) => error.includes('en/index.html')))
     assert.ok(errors.some((error) => error.includes('/assets/app.js')))
     assert.ok(errors.some((error) => error.includes('https://cdn.example/app.css')))
+  })
+
+  it('maps every manifest locale route to its clean-url output', () => {
+    assert.deepEqual(staticRoutesForPages([
+      { zh: '/', en: '/en/' },
+      { zh: '/guide/tools', en: '/en/guide/tools' },
+    ]), ['index.html', 'en/index.html', 'guide/tools.html', 'en/guide/tools.html'])
   })
 })
 

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "composite": false,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "paths": {
+      "@karkata/core": ["packages/core/src/index.ts"],
+      "@karkata/openai-compatible": ["packages/openai-compatible/src/index.ts"],
+      "@karkata/ui": ["packages/ui/src/index.ts"],
+      "@karkata/ui/web-component": ["packages/ui/src/web-component.ts"]
+    }
+  },
+  "include": ["./*.ts"]
+}

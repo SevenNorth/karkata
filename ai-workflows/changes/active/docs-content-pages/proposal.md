@@ -38,17 +38,17 @@
 
 ## 验收标准
 
-- [ ] 第一阶段 `docs-demo-site` 已 completed/archived，production build 与离线 Demo 基线通过。
-- [ ] 页面清单中的所有使用指南都有中英文镜像，语言切换保留当前 page ID。
-- [ ] Core、工具、流式、Human-in-the-Loop、React、Vue、Web Component 和 Provider 示例通过类型 fixture 或可执行测试。
-- [ ] 中文与英文页面准确说明会话回滚、流式 partial、HITL 非授权边界、API Key 和 unsafe JavaScript 等关键边界。
-- [ ] 实际桌面/移动截图清晰展示产品状态，具有准确 alt 文本，不包含虚构数据、密钥或模糊库存画面。
-- [ ] 全站内部链接、图片、路由、搜索和 `/karkata/` base 构建自动检查通过。
-- [ ] pull request workflow 不拥有生产部署权限；`main`/手动部署使用最小 Pages 权限和并发保护。
-- [ ] `website/.vitepress/dist` 保持未跟踪，部署只使用与 workflow run/commit 关联的 Pages artifact。
+- [x] 第一阶段 `docs-demo-site` 已 completed/archived，production build 与离线 Demo 基线通过。
+- [x] 页面清单中的所有使用指南都有中英文镜像，语言切换保留当前 page ID。
+- [x] Core、工具、流式、Human-in-the-Loop、React、Vue、Web Component 和 Provider 示例通过类型 fixture 或可执行测试。
+- [x] 中文与英文页面准确说明会话回滚、流式 partial、HITL 非授权边界、API Key 和 unsafe JavaScript 等关键边界。
+- [x] 实际桌面/移动截图清晰展示产品状态，具有准确 alt 文本，不包含虚构数据、密钥或模糊库存画面。
+- [x] 全站内部链接、图片、路由、搜索和 `/karkata/` base 构建自动检查通过。
+- [x] pull request workflow 不拥有生产部署权限；`main`/手动部署使用最小 Pages 权限和并发保护。
+- [x] `website/.vitepress/dist` 保持未跟踪，部署只使用与 workflow run/commit 关联的 Pages artifact。
 - [ ] `https://sevennorth.github.io/karkata/` 可加载中英文页面、静态资源、搜索和离线 Demo，无资源 404 或外部模型请求。
 - [ ] 根与包 README 在部署成功后链接到稳定页面，npm tarball 内容仍符合发布白名单。
-- [ ] `npm run check`、发布测试、package smoke、站点测试、production build 和 workspace dry-run pack 全部通过。
+- [x] `npm run check`、发布测试、package smoke、站点测试、production build 和 workspace dry-run pack 全部通过。
 
 ## 风险
 

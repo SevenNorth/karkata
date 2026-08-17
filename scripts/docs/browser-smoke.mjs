@@ -3,15 +3,18 @@ import { spawn } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium } from 'playwright-core'
+import { pages } from '../../website/page-manifest.mjs'
 
 const host = '127.0.0.1'
 const port = Number(process.env.KARKATA_DOCS_PORT ?? 4173)
 const baseURL = `http://${host}:${port}/karkata/`
 const screenshotRoot = resolve('coverage/docs-qa')
+const publicScreenshotRoot = resolve('website/public/images')
 const edgePath = process.env.KARKATA_BROWSER_PATH
   ?? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
 
 await mkdir(screenshotRoot, { recursive: true })
+await mkdir(publicScreenshotRoot, { recursive: true })
 const preview = startPreview()
 let browser
 try {
@@ -67,18 +70,37 @@ try {
   await panel.getByText('订单 1042 已安排在周五配送到 Market Street 18 号。').waitFor()
   await page.evaluate(() => window.scrollTo(0, 0))
   await page.screenshot({ path: resolve(screenshotRoot, 'home-desktop.png'), fullPage: true })
+  await page.locator('.demo-workspace').screenshot({ path: resolve(publicScreenshotRoot, 'demo-desktop.png') })
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload({ waitUntil: 'networkidle' })
   await page.locator('karkata-panel').waitFor()
   await assertLayout(page, 'mobile')
+  const mobilePanel = page.locator('karkata-panel')
+  await mobilePanel.locator('textarea').fill('Check order 1042')
+  await mobilePanel.getByRole('button', { name: '发送' }).click()
+  await mobilePanel.getByPlaceholder('回答当前问题').waitFor()
   await page.evaluate(() => window.scrollTo(0, 0))
   await page.screenshot({ path: resolve(screenshotRoot, 'home-mobile.png'), fullPage: true })
+  await page.locator('.demo-workspace').screenshot({ path: resolve(publicScreenshotRoot, 'demo-mobile.png') })
 
   await page.goto(`${baseURL}en/`, { waitUntil: 'networkidle' })
   await page.locator('karkata-panel').waitFor()
   await page.locator('karkata-panel').getByRole('button', { name: 'Send' }).waitFor()
   await assertLayout(page, 'English mobile')
+
+  for (const route of pages.flatMap(({ zh, en }) => [zh, en])) {
+    const response = await page.goto(routeURL(route), { waitUntil: 'networkidle' })
+    assert.ok(response?.ok(), `${route}: page response must be successful`)
+    await page.locator('h1').first().waitFor()
+  }
+
+  await page.goto(baseURL, { waitUntil: 'networkidle' })
+  await page.locator('.VPNavBarSearch button').click()
+  const search = page.locator('.VPLocalSearchBox input')
+  await search.waitFor()
+  await search.fill('工具')
+  await page.locator('.VPLocalSearchBox').getByText('工具', { exact: true }).first().waitFor()
 
   assert.deepEqual(externalRequests, [], `unexpected external requests: ${externalRequests.join(', ')}`)
   assert.deepEqual(failedResponses, [], `failed resources: ${failedResponses.join(', ')}`)
@@ -88,6 +110,10 @@ try {
 } finally {
   await browser?.close()
   preview.kill()
+}
+
+function routeURL(route) {
+  return new URL(route.replace(/^\//, ''), baseURL).href
 }
 
 function startPreview() {

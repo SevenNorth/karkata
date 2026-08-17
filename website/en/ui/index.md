@@ -45,3 +45,11 @@ if (panel) panel.agent = agent
 The main entry does not access the DOM during import. Only the `/web-component` subpath requires a browser. To preserve a transcript across component mounts, let the application create the Store and assign it through `panel.store`.
 
 Use the site navigation to return home and try the normal flow, stop behavior, and error recovery directly.
+
+## Actual interface
+
+These screenshots come from the deterministic offline Demo in a production preview. The interactive Demo remains the primary acceptance surface.
+
+![Karkata desktop Demo showing an order tool, user confirmation, and a completed message](/images/demo-desktop.png)
+
+![Karkata mobile Demo waiting for the user to answer a delivery-address question](/images/demo-mobile.png)

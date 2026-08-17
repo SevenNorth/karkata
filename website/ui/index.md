@@ -45,3 +45,11 @@ if (panel) panel.agent = agent
 主入口在导入阶段不访问 DOM；只有 `/web-component` 子路径需要浏览器环境。需要跨组件挂载保留 transcript 时，由应用创建 Store 并赋给 `panel.store`。
 
 本页顶部站点导航可返回首页，直接体验正常流程、停止和错误恢复。
+
+## 实际界面
+
+以下截图由 production preview 的确定性离线 Demo 生成；交互 Demo 仍是主要验收入口。
+
+![Karkata 桌面端 Demo 展示订单工具、用户确认和完成消息](/images/demo-desktop.png)
+
+![Karkata 移动端 Demo 正在等待用户回答配送地址问题](/images/demo-mobile.png)
