@@ -74,6 +74,8 @@ const agent = createAgent({
 
 Internally, `createAgent()` creates the same `OpenAICompatibleAdapter` and passes it to Core as `llm`; both forms use the same Agent Runtime.
 
+For OpenAI-compatible configuration, `baseURL` is the only required option and `model` is optional. When the browser calls an application LLM proxy, the model can be omitted and selected by the proxy; a client-provided model may also be overridden or rejected.
+
 One Agent instance executes at most one `send()` at a time. Successful runs commit the persistent session; failed, aborted, and timed-out runs do not commit incomplete messages.
 
 ## Subscribe to state

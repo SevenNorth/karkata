@@ -3,7 +3,7 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 export interface OpenAICompatibleAdapterConfig {
-  model: string
+  model?: string
   baseURL: string
   apiKey?: string
   fetch?: typeof globalThis.fetch
@@ -54,7 +54,7 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
   readonly #config: Required<Pick<OpenAICompatibleAdapterConfig, 'maxRetries'>> & OpenAICompatibleAdapterConfig
   readonly #fetch: typeof globalThis.fetch
   constructor(config: OpenAICompatibleAdapterConfig) {
-    if (!config.model || !config.baseURL) throw new TypeError('model and baseURL are required')
+    if (!config.baseURL) throw new TypeError('baseURL is required')
     this.#config = { ...config, maxRetries: config.maxRetries ?? 2 }
     this.#fetch = (config.fetch ?? globalThis.fetch).bind(globalThis)
   }
@@ -80,7 +80,7 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
   #prepareRequest(request: LLMRequest, streaming: boolean): string {
     try {
       const body: Record<string, unknown> = {
-        model: this.#config.model,
+        ...(this.#config.model ? { model: this.#config.model } : {}),
         messages: request.messages.map(toOpenAIMessage),
         tools: request.tools.map((tool) => ({
           type: 'function',

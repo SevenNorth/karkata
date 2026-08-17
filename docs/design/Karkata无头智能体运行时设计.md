@@ -204,7 +204,6 @@ export type {
 import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
-  model: 'qwen3.5-plus',
   baseURL: 'https://example.com/v1',
   apiKey: '...',
   agent: {
@@ -232,6 +231,8 @@ const agent = createAgent({
   },
 })
 ```
+
+OpenAI-compatible Provider 的 `baseURL` 是唯一必填配置，`model` 为可选请求元数据。提供 `model` 时 Adapter 将其发送给服务；省略时省略请求字段，由 `baseURL` 对应服务选择、覆盖、映射或拒绝模型。客户端传递的 `model` 不构成授权边界。
 
 `@karkata-ai/openai-compatible` 的 `createAgent()` 是 OpenAI-compatible 场景的便捷入口：Provider 配置位于顶层，Runtime 配置位于 `agent`。工厂只组合 `OpenAICompatibleAdapter` 与标准 Core `Agent`。Core 仍只依赖 `LLMAdapter` 契约，不认识默认 Provider；其他协议可实现独立 Adapter，高级使用方也可继续显式调用 `new Agent({ llm: new OpenAICompatibleAdapter(...) })`。
 
@@ -731,6 +732,8 @@ new ModelError({
   cause: providerError,
 })
 ```
+
+上例展示的是直连 Provider 并显式指定模型的用法。若 `baseURL` 指向应用后端代理，可以省略 `model`；Adapter 会省略请求体中的 `model` 字段，模型选择由代理服务决定。仓库的真实 Provider smoke 仍使用 `KARKATA_MODEL` 显式覆盖，便于验证目标 Provider 的要求。
 
 `cause` 只保留在抛出的 `ModelError` 上供 Adapter 调用栈诊断，Core 复制到公开错误时将其删除。未采用该契约的第三方 Adapter 异常映射为不可重试的 `MODEL_ERROR`。取消 signal 已触发时 AbortError 直接穿透分类；Runtime 仍以手动中断或超时作为最终结果。
 

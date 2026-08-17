@@ -19,6 +19,8 @@ const agent = createAgent({
 })
 ```
 
+`baseURL` is the only required provider option. `model` is optional: it is sent as request metadata when provided and omitted otherwise. An application LLM proxy may ignore, override, map, or reject a client-provided model; provide it explicitly when connecting directly to a provider that requires one.
+
 Read API keys only in a trusted server or same-origin proxy. Never place long-lived credentials in a static site, browser bundle, state, error, or message. Dynamic `headers` can resolve short-lived credentials per request, but a header resolver failure is not automatically retryable.
 
 The Adapter retries network errors, 429, and 5xx only. It does not retry 401, 403, ordinary 4xx, validation failures, or invalid responses. Retries and stream reads receive the current run's `AbortSignal`. Use `transformRequest` only for vendor field compatibility and never log an unredacted request.

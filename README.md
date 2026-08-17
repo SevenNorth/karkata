@@ -35,7 +35,6 @@ const getOrder = defineTool({
 })
 
 const agent = createAgent({
-  model: 'your-model',
   baseURL: 'https://your-provider.example/v1',
   apiKey: process.env.MODEL_API_KEY,
   agent: {
@@ -53,6 +52,8 @@ agent.subscribe((state) => {
 const result = await agent.send('查询订单 123')
 console.log(result)
 ```
+
+OpenAI-compatible 配置中 `baseURL` 是唯一必填项，`model` 可选。省略 `model` 时由 `baseURL` 对应的服务决定默认模型；使用后端代理时，服务端也可以覆盖或拒绝前端传入的模型。
 
 每个 Agent 实例同一时间最多运行一次 `send()`。成功运行会提交到持续会话；失败、中断和超时不会提交不完整消息。环境能力和副作用均由应用显式注册工具提供。
 

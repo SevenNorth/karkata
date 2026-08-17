@@ -56,6 +56,19 @@ describe('createAgent', () => {
     expect(body.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('Reply briefly') })
   })
 
+  it('allows the proxy to choose the model when model is omitted', async () => {
+    const fetch = vi.fn(async () => successResponse())
+    const agent = createAgent({ baseURL: 'https://proxy.test/v1', fetch })
+
+    await expect(agent.send('help')).resolves.toMatchObject({ status: 'completed', content: 'done' })
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as Record<string, unknown>
+    expect(body).not.toHaveProperty('model')
+  })
+
+  it('still requires baseURL', () => {
+    expect(() => new OpenAICompatibleAdapter({ model: 'test' } as never)).toThrow('baseURL is required')
+  })
+
   it('enables provider streaming through the nested runtime configuration', async () => {
     const fetch = vi.fn(async () => sseResponse([
       'data: {"choices":[{"index":0,"delta":{"content":"live"},"finish_reason":"stop"}]}\n\n',

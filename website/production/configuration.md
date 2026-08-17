@@ -13,7 +13,7 @@ description: Core Agent 与 OpenAI-compatible Provider 的公开配置参考
 
 | 字段 | 作用 |
 | --- | --- |
-| `model` | 必填模型 ID |
+| `model` | 可选模型 ID；提供时作为请求元数据发送，省略时由 `baseURL` 对应服务决定 |
 | `baseURL` | 必填 OpenAI-compatible HTTP 根地址；生产环境使用服务端白名单值 |
 | `apiKey` | 可选 API Key；长期值只在服务端使用 |
 | `headers` | 静态 Header 或每次请求解析的 Header 函数 |
@@ -40,4 +40,4 @@ description: Core Agent 与 OpenAI-compatible Provider 的公开配置参考
 
 ## 环境变量
 
-环境变量名不是 Karkata Core 的固定 API。部署应用可以约定 `LLM_BASE_URL`、`LLM_API_KEY` 和 `LLM_MODEL`，读取后传入 Provider，并在启动时校验非空和 HTTPS/allowlist。
+环境变量名不是 Karkata Core 的固定 API。部署应用可以约定 `LLM_BASE_URL`、`LLM_API_KEY` 和可选的 `LLM_MODEL`，读取后传入 Provider，并在启动时校验非空和 HTTPS/allowlist。若 `baseURL` 指向应用代理，代理服务可以覆盖或忽略客户端模型；不要把客户端传入的 `model` 当作授权边界。

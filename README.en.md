@@ -54,6 +54,8 @@ const result = await agent.send('Find order 123')
 console.log(result)
 ```
 
+For the OpenAI-compatible provider, `baseURL` is the only required provider option. `model` is optional: when omitted, the endpoint may choose the model. This is useful when `baseURL` points to an application LLM proxy; the proxy may accept, override, map, or reject a client-provided model.
+
 An Agent instance runs at most one `send()` at a time. Successful runs are committed to the persistent session; failed, aborted, and timed-out runs do not commit incomplete messages. Applications expose environment capabilities and side effects through explicitly registered tools.
 
 ## UI

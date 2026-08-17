@@ -29,6 +29,8 @@ const agent = createAgent({
 const result = await agent.send('Hello')
 ```
 
+`baseURL` is the only required provider option. `model` is optional: when provided, it is sent as request metadata; when omitted, the request does not include a `model` field. With an application LLM proxy, the server may ignore, override, map, or reject a client-provided model. When connecting directly to a provider that requires a model, provide it from the calling application.
+
 The adapter normalizes text, tool calls, token usage, SSE streams, and common HTTP/network failures. It retries only network failures, HTTP 429, and HTTP 5xx. Authentication, validation, and ordinary 4xx errors are not retried. Custom `headers` or `fetch` implementations can provide short-lived tokens or route calls through an application backend.
 
 Do not ship long-lived API keys in public browser bundles. Services with similar OpenAI paths can still differ in streaming events, tool calls, and error bodies; run the explicit real-provider smoke against each target provider before release.

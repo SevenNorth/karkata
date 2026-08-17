@@ -74,6 +74,8 @@ const agent = createAgent({
 
 `createAgent()` 内部同样创建 `OpenAICompatibleAdapter` 并将其作为 `llm` 传给 Core；两种写法使用的是同一个 Agent Runtime。
 
+OpenAI-compatible 配置中 `baseURL` 是唯一必填项，`model` 可选。浏览器通过后端 LLM Proxy 调用时，可以省略 `model`，由代理服务决定实际模型；显式传入的模型也可能被代理覆盖或拒绝。
+
 一个 Agent 实例同一时间最多执行一次 `send()`。成功运行提交持续会话；失败、中断和超时不会提交不完整消息。
 
 ## 订阅状态

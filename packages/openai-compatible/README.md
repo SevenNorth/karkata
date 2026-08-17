@@ -16,7 +16,6 @@ npm install @karkata-ai/core @karkata-ai/openai-compatible
 import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
-  model: 'your-model',
   baseURL: 'https://your-provider.example/v1',
   apiKey: process.env.MODEL_API_KEY,
   maxRetries: 2,
@@ -28,6 +27,8 @@ const agent = createAgent({
 
 const result = await agent.send('你好')
 ```
+
+`baseURL` 是唯一必填的 Provider 配置。`model` 可选：提供时会作为请求体元数据发送，省略时不发送 `model` 字段。使用后端 LLM Proxy 时，代理可以忽略、覆盖、映射或拒绝前端传入的模型；直接连接严格要求模型的 Provider 时，应由调用方提供 `model`。
 
 Adapter 规范化文本、Tool Call、Token Usage、SSE 流和常见 HTTP/网络错误。只重试网络错误、HTTP 429 与 HTTP 5xx；鉴权、校验和普通 4xx 不重试。自定义 `headers` 或 `fetch` 可用于短期令牌和应用后端代理。
 
