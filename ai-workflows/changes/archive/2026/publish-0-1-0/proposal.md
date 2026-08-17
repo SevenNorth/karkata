@@ -36,9 +36,9 @@ Karkata 0.1.0 的四个 workspace 已完成 Runtime、UI、双语文档站和发
 - [x] 发布前 `npm run check`、发布测试、coverage、package smoke 和 dry-run pack 通过。
 - [x] 真实 Provider smoke 已在受控环境运行并记录，或明确记录未提供凭据且不阻塞本地发布门禁。
 - [x] 新临时项目可从 registry 安装四个包，完成 ESM、TypeScript、UI web-component 子路径和本地 Provider 消费验证。
-- [ ] 只有四包全部验证通过后才创建并推送 `v0.1.0` tag。
-- [ ] GitHub Release `v0.1.0` 创建成功，关联正确 tag/commit，未包含凭据或未脱敏请求。
-- [ ] change 文档记录 npm 版本、tag、Release URL、commit 和剩余风险，并归档。
+- [x] 只有四包全部验证通过后才创建并推送 `v0.1.0` tag。
+- [x] GitHub Release `v0.1.0` 创建成功，关联正确 tag/commit，未包含凭据或未脱敏请求。
+- [x] change 文档记录 npm 版本、tag、Release URL、commit 和剩余风险，并归档。
 
 ## 风险
 

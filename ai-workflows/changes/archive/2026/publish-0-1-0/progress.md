@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-- 当前任务：任务 7，创建 `v0.1.0` tag 和 GitHub Release
-- TDD 阶段：scope 迁移、四包发布和 registry 消费验证已完成
-- 最后完成：四个 `@karkata-ai/*@0.1.0` 已发布，registry tarball 消费 smoke 通过
+- 当前任务：任务 8，完成并归档 change
+- TDD 阶段：全部实施和验证任务已完成
+- 最后完成：`v0.1.0` tag 与 GitHub Release 已创建并核对 commit 关联
 - 阻塞项：无
 
 ## 已修改文件
@@ -41,7 +41,11 @@
 - 四包真实发布：`@karkata-ai/core`、`@karkata-ai/openai-compatible`、`@karkata-ai/javascript`、`@karkata-ai/ui` 均成功返回 `+ ...@0.1.0`。
 - registry 精确版本 API：四包均返回 `0.1.0`，三个下游包的 Core 依赖均为 `@karkata-ai/core@0.1.0`。
 - 首次标准名称安装短暂命中 npm packument 的旧 404；改用 API 返回的官方 registry tarball URL 后，四包安装、TypeScript、ESM、Provider 构造和 `@karkata-ai/ui/web-component` 验证通过。
+- 四包访问级别：`npm access get status` 均返回 `public`。
+- 发布证据提交 `2560c1f6ec107e4151d8f35ef980ed83fa49d0b8` 已推送至 `origin/main`。
+- annotated `v0.1.0` 已推送；GitHub Release 为非 draft、非 prerelease：https://github.com/SevenNorth/karkata/releases/tag/v0.1.0。
+- GitHub tag object 与本地 tag 均解析到 `2560c1f6ec107e4151d8f35ef980ed83fa49d0b8`。
 
 ## 下一步
 
-- 提交并推送发布证据，创建并推送 annotated `v0.1.0` tag，再创建并核对 GitHub Release。
+- 流转 completed，归档 change，提交并推送最终发布记录；撤销短期 npm token。

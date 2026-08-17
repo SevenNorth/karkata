@@ -2,9 +2,10 @@
   "id": "publish-0-1-0",
   "title": "发布 Karkata 0.1.0",
   "type": "feature",
-  "status": "implementing",
+  "status": "archived",
   "branch": "main",
   "createdAt": "2026-08-17T04:38:35.128Z",
-  "updatedAt": "2026-08-17T05:30:41.088Z",
-  "revision": 1
+  "updatedAt": "2026-08-17T05:50:24.766Z",
+  "revision": 1,
+  "archivedAt": "2026-08-17T05:50:24.766Z"
 }

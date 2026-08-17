@@ -8,8 +8,8 @@
 - [x] 4. 在受控凭据存在时运行真实 Provider smoke，检查脱敏输出；无凭据则记录未运行。
 - [x] 5. 按依赖顺序发布四个 npm 包，任一失败立即停止并记录版本、registry 和错误分类。
 - [x] 6. 从 npm registry 临时安装四包，运行 ESM、TypeScript、UI 子路径和本地 Provider 消费验证。
-- [ ] 7. 四包验证通过后创建并推送 `v0.1.0` tag，创建 GitHub Release 并核对 commit/tag 关联。
-- [ ] 8. 更新验证记录，确认工作区干净，流转 completed 并归档 change。
+- [x] 7. 四包验证通过后创建并推送 `v0.1.0` tag，创建 GitHub Release 并核对 commit/tag 关联。
+- [x] 8. 更新验证记录，确认工作区仅含待归档 change 记录，流转 completed 并归档 change。
 
 ## TDD 记录
 
@@ -18,7 +18,7 @@
 | 发布前置与发布物 | `npm whoami`：`ENEEDAUTH`；`gh auth status`：未登录；工作区含未跟踪 change 草案 | npm `qibeidu` 与 GitHub `SevenNorth` 已登录；Node/npm、registry、四包版本和未发布状态正确 | 迁移后完整门禁与四包 publish dry-run 通过；生产依赖审计为 0 |
 | npm scope 迁移 | 原组织属于他人，发布者无法使用原 scope；首次 typecheck 因旧 workspace 链接无法解析新包名 | 刷新 workspace 链接后 `npm run check` 通过，当前文件无旧 scope 残留 | release、docs、coverage、package smoke 与四包 dry-run 均通过 |
 | registry 消费与版本一致性 | 标准名称安装短暂命中 npm 首次发布前的 packument 404 缓存 | 四个精确版本 registry tarball 均安装为 `0.1.0` | TypeScript、ESM、Provider 构造和 UI web-component 子路径通过 |
-| tag/Release 外部状态 | 待执行 | 待执行 | 待执行 |
+| tag/Release 外部状态 | 本地和远端均无既有 `v0.1.0`，不存在覆盖目标 | annotated tag 已推送，GitHub Release 已公开创建 | tag 与本地均解析到 commit `2560c1f6ec107e4151d8f35ef980ed83fa49d0b8` |
 
 ## 验证记录
 
@@ -28,7 +28,7 @@
 | `npm run check`、release/package smoke、coverage、dry-run pack | 通过 | 182 项测试；release 7 项；statements 90.52%、lines 94.45%；四包 package smoke 和 publish dry-run 通过 |
 | 真实 Provider smoke | 未运行 | `KARKATA_BASE_URL`、`KARKATA_API_KEY`、`KARKATA_MODEL` 均未提供，按批准方案记录 |
 | npm publish、registry consumer | 通过 | 四包按依赖顺序发布为 `0.1.0`；精确版本 API、registry tarball、ESM、TypeScript、Provider 和 UI 子路径验证通过 |
-| tag、Release | 待执行 | 仅在发布证据提交并推送后创建 |
+| tag、Release | 通过 | `v0.1.0` 指向 `2560c1f6ec107e4151d8f35ef980ed83fa49d0b8`；Release：https://github.com/SevenNorth/karkata/releases/tag/v0.1.0 |
 
 ## 实施备注
 
