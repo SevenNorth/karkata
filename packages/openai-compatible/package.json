@@ -1,5 +1,5 @@
 {
-  "name": "@karkata/openai-compatible",
+  "name": "@karkata-ai/openai-compatible",
   "version": "0.1.0",
   "description": "OpenAI-compatible chat completions adapter and concise Agent factory for Karkata.",
   "license": "MIT",
@@ -36,7 +36,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@karkata/core": "0.1.0",
+    "@karkata-ai/core": "0.1.0",
     "eventsource-parser": "^4.0.0",
     "zod": "^4.3.6"
   }

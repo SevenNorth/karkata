@@ -1,4 +1,4 @@
-# @karkata/javascript
+# @karkata-ai/javascript
 
 [文档](https://sevennorth.github.io/karkata/guide/tools) | [English](https://github.com/SevenNorth/karkata/blob/main/packages/javascript/README.en.md) | 中文
 
@@ -7,14 +7,14 @@
 ## 安装
 
 ```bash
-npm install @karkata/core @karkata/javascript
+npm install @karkata-ai/core @karkata-ai/javascript
 ```
 
 ## 使用
 
 ```ts
-import { Agent } from '@karkata/core'
-import { createUnsafeJavaScriptTool } from '@karkata/javascript'
+import { Agent } from '@karkata-ai/core'
+import { createUnsafeJavaScriptTool } from '@karkata-ai/javascript'
 
 const javascript = createUnsafeJavaScriptTool({
   globals: { formatCurrency },

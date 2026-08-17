@@ -1,4 +1,4 @@
-import type { Agent } from '@karkata/core'
+import type { Agent } from '@karkata-ai/core'
 
 export function observeAgent(agent: Agent): () => void {
   const unsubscribeState = agent.subscribe((state) => {

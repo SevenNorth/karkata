@@ -5,12 +5,12 @@ description: Create an Agent, manage its session, and read isolated state
 
 # Core Runtime
 
-`@karkata/core` owns the Agent lifecycle, sessions, tool dispatch, cancellation, and state. It does not depend on a model vendor, the DOM, or Node.js APIs.
+`@karkata-ai/core` owns the Agent lifecycle, sessions, tool dispatch, cancellation, and state. It does not depend on a model vendor, the DOM, or Node.js APIs.
 
 ## Create and run
 
 ```ts
-import { Agent, type LLMAdapter } from '@karkata/core'
+import { Agent, type LLMAdapter } from '@karkata-ai/core'
 
 declare const llm: LLMAdapter
 const agent = new Agent({ llm, timeoutMs: 30_000, maxSteps: 12 })

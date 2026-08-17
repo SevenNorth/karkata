@@ -5,7 +5,7 @@ import type {
   AgentStateListener,
   AgentStatus,
   ContextUsage,
-} from '@karkata/core'
+} from '@karkata-ai/core'
 
 export interface AgentUIAdapter {
   send(message: string): Promise<AgentResult>

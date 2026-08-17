@@ -8,20 +8,20 @@ Karkata is a lightweight, headless agent runtime for TypeScript applications. It
 
 | Package | Purpose |
 | --- | --- |
-| `@karkata/core` | Agent lifecycle, normalized messages, tools, state, cancellation, and sessions |
-| `@karkata/openai-compatible` | OpenAI-compatible Chat Completions adapter and concise Agent factory |
-| `@karkata/javascript` | Explicitly registered, non-sandboxed JavaScript tool for trusted code only |
-| `@karkata/ui` | Framework-neutral UI Store and optional Web Component panel |
+| `@karkata-ai/core` | Agent lifecycle, normalized messages, tools, state, cancellation, and sessions |
+| `@karkata-ai/openai-compatible` | OpenAI-compatible Chat Completions adapter and concise Agent factory |
+| `@karkata-ai/javascript` | Explicitly registered, non-sandboxed JavaScript tool for trusted code only |
+| `@karkata-ai/ui` | Framework-neutral UI Store and optional Web Component panel |
 
 ## Quick Start
 
 ```bash
-npm install @karkata/core @karkata/openai-compatible zod
+npm install @karkata-ai/core @karkata-ai/openai-compatible zod
 ```
 
 ```ts
-import { defineTool } from '@karkata/core'
-import { createAgent } from '@karkata/openai-compatible'
+import { defineTool } from '@karkata-ai/core'
+import { createAgent } from '@karkata-ai/openai-compatible'
 import { z } from 'zod'
 
 const getOrder = defineTool({
@@ -58,10 +58,10 @@ An Agent instance runs at most one `send()` at a time. Successful runs are commi
 
 ## UI
 
-React, Vue, and native views can subscribe to the framework-neutral Store in `@karkata/ui`:
+React, Vue, and native views can subscribe to the framework-neutral Store in `@karkata-ai/ui`:
 
 ```ts
-import { createAgentUIStore } from '@karkata/ui'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const store = createAgentUIStore(agent)
 const unsubscribe = store.subscribe(() => render(store.getSnapshot()))
@@ -75,7 +75,7 @@ store.dispose()
 Browsers can also use the explicit, SSR-safe Web Component entry:
 
 ```ts
-import { defineKarkataPanel, type KarkataPanelElement } from '@karkata/ui/web-component'
+import { defineKarkataPanel, type KarkataPanelElement } from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')
@@ -91,7 +91,7 @@ npm run demo:ui
 ## Security Boundaries
 
 - Do not ship long-lived model API keys in public browser bundles. Use an application backend proxy or short-lived token.
-- `@karkata/javascript` executes in the host's current Realm. It is not a security sandbox and must only process trusted code.
+- `@karkata-ai/javascript` executes in the host's current Realm. It is not a security sandbox and must only process trusted code.
 - A Human-in-the-Loop question is not an authorization boundary. Sensitive tools still need server-side permission checks.
 - `AbortSignal` makes the Runtime stop waiting promptly. It cannot guarantee cancellation of side effects in external systems that ignore it.
 

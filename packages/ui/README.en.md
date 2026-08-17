@@ -1,4 +1,4 @@
-# @karkata/ui
+# @karkata-ai/ui
 
 [Documentation](https://sevennorth.github.io/karkata/en/ui/) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/ui/README.md)
 
@@ -7,13 +7,13 @@ Karkata's framework-neutral UI Store and optional Web Component. The Store proje
 ## Installation
 
 ```bash
-npm install @karkata/core @karkata/ui
+npm install @karkata-ai/core @karkata-ai/ui
 ```
 
 ## Custom UI
 
 ```ts
-import { createAgentUIStore } from '@karkata/ui'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const store = createAgentUIStore(agent)
 const unsubscribe = store.subscribe(() => {
@@ -32,7 +32,7 @@ Every message has `contentStatus: 'complete' | 'streaming' | 'incomplete'`. If a
 ## Web Component
 
 ```ts
-import { defineKarkataPanel, type KarkataPanelElement } from '@karkata/ui/web-component'
+import { defineKarkataPanel, type KarkataPanelElement } from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')
@@ -42,7 +42,7 @@ if (panel) {
 }
 ```
 
-The `@karkata/ui` main entry does not access the DOM during import. Only the explicit `/web-component` subpath requires a browser DOM. For transcript continuity, let the application own the Store and assign it through `panel.store`.
+The `@karkata-ai/ui` main entry does not access the DOM during import. Only the explicit `/web-component` subpath requires a browser DOM. For transcript continuity, let the application own the Store and assign it through `panel.store`.
 
 See the [Karkata repository](https://github.com/SevenNorth/karkata) for the complete interaction contract.
 

@@ -8,13 +8,13 @@ description: Create your first Karkata Agent
 Karkata separates the model protocol from the Agent Runtime. Install these dependencies for an OpenAI-compatible Chat Completions service:
 
 ```bash
-npm install @karkata/core @karkata/openai-compatible zod
+npm install @karkata-ai/core @karkata-ai/openai-compatible zod
 ```
 
 ## Define a tool
 
 ```ts
-import { defineTool } from '@karkata/core'
+import { defineTool } from '@karkata-ai/core'
 import { z } from 'zod'
 
 const getOrder = defineTool({
@@ -33,8 +33,8 @@ A tool must return a serializable, model-visible `ToolOutput`. Enforce server-si
 ## Create an Agent
 
 ```ts
-import { Agent } from '@karkata/core'
-import { OpenAICompatibleAdapter } from '@karkata/openai-compatible'
+import { Agent } from '@karkata-ai/core'
+import { OpenAICompatibleAdapter } from '@karkata-ai/openai-compatible'
 
 const llm = new OpenAICompatibleAdapter({
   model: 'your-model',
@@ -58,7 +58,7 @@ console.log(result)
 For a shorter OpenAI-compatible setup, use the equivalent convenience factory:
 
 ```ts
-import { createAgent } from '@karkata/openai-compatible'
+import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
   model: 'your-model',

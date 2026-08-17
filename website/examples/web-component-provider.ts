@@ -1,6 +1,6 @@
-import { createAgent } from '@karkata/openai-compatible'
-import { createAgentUIStore } from '@karkata/ui'
-import { defineKarkataPanel, type KarkataPanelElement } from '@karkata/ui/web-component'
+import { createAgent } from '@karkata-ai/openai-compatible'
+import { createAgentUIStore } from '@karkata-ai/ui'
+import { defineKarkataPanel, type KarkataPanelElement } from '@karkata-ai/ui/web-component'
 
 export function mountPanel(serverApiKey: string): KarkataPanelElement {
   const agent = createAgent({

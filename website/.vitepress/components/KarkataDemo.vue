@@ -10,7 +10,7 @@ const ready = ref(false)
 const scenario = ref<'order' | 'retryable-error'>('order')
 
 const controller = createDemoController({
-  loadPanelModule: () => import('@karkata/ui/web-component'),
+  loadPanelModule: () => import('@karkata-ai/ui/web-component'),
   createAgent: (options: { scenario: 'order' | 'retryable-error'; locale: 'zh' | 'en' }) => createDemoAgent(options),
   labels: demoLabels,
 })

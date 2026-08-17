@@ -1,4 +1,4 @@
-# @karkata/openai-compatible
+# @karkata-ai/openai-compatible
 
 [Documentation](https://sevennorth.github.io/karkata/en/provider/openai-compatible) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/openai-compatible/README.md)
 
@@ -7,13 +7,13 @@ Karkata's OpenAI-compatible Chat Completions adapter. It includes the concise `c
 ## Installation
 
 ```bash
-npm install @karkata/core @karkata/openai-compatible
+npm install @karkata-ai/core @karkata-ai/openai-compatible
 ```
 
 ## Usage
 
 ```ts
-import { createAgent } from '@karkata/openai-compatible'
+import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
   model: 'your-model',

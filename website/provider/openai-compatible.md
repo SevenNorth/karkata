@@ -5,10 +5,10 @@ description: 配置 Chat Completions Adapter、凭据与错误处理
 
 # OpenAI-compatible Provider
 
-`@karkata/openai-compatible` 把 OpenAI-compatible Chat Completions 请求、流和工具调用归一化为 Core 契约。
+`@karkata-ai/openai-compatible` 把 OpenAI-compatible Chat Completions 请求、流和工具调用归一化为 Core 契约。
 
 ```ts
-import { createAgent } from '@karkata/openai-compatible'
+import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
   model: 'your-model',

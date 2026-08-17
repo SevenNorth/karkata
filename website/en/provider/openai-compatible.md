@@ -5,10 +5,10 @@ description: Configure the Chat Completions Adapter, credentials, and errors
 
 # OpenAI-compatible Provider
 
-`@karkata/openai-compatible` normalizes OpenAI-compatible Chat Completions requests, streams, and tool calls into the Core contract.
+`@karkata-ai/openai-compatible` normalizes OpenAI-compatible Chat Completions requests, streams, and tool calls into the Core contract.
 
 ```ts
-import { createAgent } from '@karkata/openai-compatible'
+import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
   model: 'your-model',

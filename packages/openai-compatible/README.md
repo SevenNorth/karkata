@@ -1,4 +1,4 @@
-# @karkata/openai-compatible
+# @karkata-ai/openai-compatible
 
 [文档](https://sevennorth.github.io/karkata/provider/openai-compatible) | [English](https://github.com/SevenNorth/karkata/blob/main/packages/openai-compatible/README.en.md) | 中文
 
@@ -7,13 +7,13 @@ Karkata 的 OpenAI-compatible Chat Completions Adapter，包含便捷的 `create
 ## 安装
 
 ```bash
-npm install @karkata/core @karkata/openai-compatible
+npm install @karkata-ai/core @karkata-ai/openai-compatible
 ```
 
 ## 使用
 
 ```ts
-import { createAgent } from '@karkata/openai-compatible'
+import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
   model: 'your-model',

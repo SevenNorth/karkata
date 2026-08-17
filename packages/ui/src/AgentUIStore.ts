@@ -1,4 +1,4 @@
-import type { AgentMessage, AgentRequest, AgentState, AssistantMessage, ToolResultMessage } from '@karkata/core'
+import type { AgentMessage, AgentRequest, AgentState, AssistantMessage, ToolResultMessage } from '@karkata-ai/core'
 import type {
   AgentUIAdapter,
   AgentUIItem,

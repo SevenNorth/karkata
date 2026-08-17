@@ -47,7 +47,7 @@ export async function runPackageSmoke() {
 
     const dependencies = {}
     for (const packedPackage of packages) {
-      const packageName = packageNames.find((name) => packedPackage.name === `@karkata/${name}`)
+      const packageName = packageNames.find((name) => packedPackage.name === `@karkata-ai/${name}`)
       assertPackedFiles(packageName, packedPackage.files.map((file) => file.path))
       dependencies[packedPackage.name] = `file:../artifacts/${packedPackage.filename}`
     }
@@ -90,7 +90,7 @@ function assertPackResult(packages) {
   }
   const actualNames = new Set(packages.map((entry) => entry.name))
   for (const packageName of packageNames) {
-    if (!actualNames.has(`@karkata/${packageName}`)) throw new Error(`Missing packed workspace: ${packageName}`)
+    if (!actualNames.has(`@karkata-ai/${packageName}`)) throw new Error(`Missing packed workspace: ${packageName}`)
   }
 }
 

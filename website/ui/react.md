@@ -8,7 +8,7 @@ description: 通过 useSyncExternalStore 订阅 Agent UI Store
 `AgentUIStore` 提供 React 需要的稳定 `subscribe` 和 `getSnapshot` 接口：
 
 ```ts
-import type { AgentUIStore } from '@karkata/ui'
+import type { AgentUIStore } from '@karkata-ai/ui'
 import { useSyncExternalStore } from 'react'
 
 export function useAgentState(store: AgentUIStore) {

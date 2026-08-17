@@ -4,9 +4,9 @@ import { resolve } from 'node:path'
 export default defineConfig({
   resolve: {
     alias: {
-      '@karkata/core': resolve(import.meta.dirname, 'packages/core/src/index.ts'),
-      '@karkata/openai-compatible': resolve(import.meta.dirname, 'packages/openai-compatible/src/index.ts'),
-      '@karkata/javascript': resolve(import.meta.dirname, 'packages/javascript/src/index.ts'),
+      '@karkata-ai/core': resolve(import.meta.dirname, 'packages/core/src/index.ts'),
+      '@karkata-ai/openai-compatible': resolve(import.meta.dirname, 'packages/openai-compatible/src/index.ts'),
+      '@karkata-ai/javascript': resolve(import.meta.dirname, 'packages/javascript/src/index.ts'),
     },
   },
   test: {

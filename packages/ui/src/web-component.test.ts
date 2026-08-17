@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentRequestListener, AgentResult, AgentStateListener } from '@karkata/core'
+import type { AgentRequestListener, AgentResult, AgentStateListener } from '@karkata-ai/core'
 import type { AgentUIAdapter, AgentUIState, AgentUIStore } from './index.js'
 import {
   defineKarkataPanel,

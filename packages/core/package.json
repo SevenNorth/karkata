@@ -1,5 +1,5 @@
 {
-  "name": "@karkata/core",
+  "name": "@karkata-ai/core",
   "version": "0.1.0",
   "description": "Framework-neutral agent runtime with tools, sessions, cancellation, streaming, and human input.",
   "license": "MIT",

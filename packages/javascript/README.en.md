@@ -1,4 +1,4 @@
-# @karkata/javascript
+# @karkata-ai/javascript
 
 [Documentation](https://sevennorth.github.io/karkata/en/guide/tools) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/javascript/README.md)
 
@@ -7,14 +7,14 @@ An explicitly registered JavaScript execution tool for Karkata. It runs code in 
 ## Installation
 
 ```bash
-npm install @karkata/core @karkata/javascript
+npm install @karkata-ai/core @karkata-ai/javascript
 ```
 
 ## Usage
 
 ```ts
-import { Agent } from '@karkata/core'
-import { createUnsafeJavaScriptTool } from '@karkata/javascript'
+import { Agent } from '@karkata-ai/core'
+import { createUnsafeJavaScriptTool } from '@karkata-ai/javascript'
 
 const javascript = createUnsafeJavaScriptTool({
   globals: { formatCurrency },

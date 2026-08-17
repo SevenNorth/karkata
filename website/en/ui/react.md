@@ -8,7 +8,7 @@ description: Subscribe to Agent UI Store with useSyncExternalStore
 `AgentUIStore` exposes the stable `subscribe` and `getSnapshot` functions React expects:
 
 ```ts
-import type { AgentUIStore } from '@karkata/ui'
+import type { AgentUIStore } from '@karkata-ai/ui'
 import { useSyncExternalStore } from 'react'
 
 export function useAgentState(store: AgentUIStore) {

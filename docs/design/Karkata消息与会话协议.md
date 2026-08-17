@@ -226,7 +226,7 @@ await agent.send('开始处理另一个客户')
 
 `AgentState.messages` 是 Core 当前会送入后续模型请求的深只读规范化上下文，而不是稳定、追加式的 UI transcript。运行中它可以包含尚未提交的 `runMessages`；成功压缩后旧消息可以被摘要或裁剪候选替换；失败、中止或超时后本轮消息会回滚。原始供应商请求、原始响应、鉴权信息和内部 Schema 引用不进入状态，但 Tool Call 输入与 Tool Result 正文仍属于模型上下文，通用 UI 不应直接无筛选回显。
 
-`@karkata/ui` 因此在包内维护独立的会话期展示记录。它只从 Store 绑定时开始保证保留已观察交互，把 Human-in-the-Loop 问答转换为普通消息，并默认从工具条目中移除原始载荷。非空初始上下文只能作为完整性未知的 `context_snapshot` 呈现。模型上下文和 UI transcript 不互相回写，后者也不是持久化或 checkpoint 格式。完整规则见 [Karkata UI 交互契约](./Karkata%20UI%20交互契约.md)。
+`@karkata-ai/ui` 因此在包内维护独立的会话期展示记录。它只从 Store 绑定时开始保证保留已观察交互，把 Human-in-the-Loop 问答转换为普通消息，并默认从工具条目中移除原始载荷。非空初始上下文只能作为完整性未知的 `context_snapshot` 呈现。模型上下文和 UI transcript 不互相回写，后者也不是持久化或 checkpoint 格式。完整规则见 [Karkata UI 交互契约](./Karkata%20UI%20交互契约.md)。
 
 UI Store 会把当前 `partialResponse` 投影为普通 Assistant 展示条目，但这不会改变上述历史边界。同一步累计更新保持一个 UI ID，完整 AssistantMessage 到达后原位完成；若运行失败、中止或销毁，已显示文本保留为 `contentStatus: 'incomplete'`。该条目只存在于 UI transcript，不能被历史压缩器读取，也不能进入下一次模型请求。
 

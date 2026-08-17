@@ -8,13 +8,13 @@ description: 创建第一个 Karkata Agent
 Karkata 把模型协议与 Agent Runtime 分开。使用 OpenAI-compatible Chat Completions 服务时，安装以下依赖：
 
 ```bash
-npm install @karkata/core @karkata/openai-compatible zod
+npm install @karkata-ai/core @karkata-ai/openai-compatible zod
 ```
 
 ## 创建工具
 
 ```ts
-import { defineTool } from '@karkata/core'
+import { defineTool } from '@karkata-ai/core'
 import { z } from 'zod'
 
 const getOrder = defineTool({
@@ -33,8 +33,8 @@ const getOrder = defineTool({
 ## 创建 Agent
 
 ```ts
-import { Agent } from '@karkata/core'
-import { OpenAICompatibleAdapter } from '@karkata/openai-compatible'
+import { Agent } from '@karkata-ai/core'
+import { OpenAICompatibleAdapter } from '@karkata-ai/openai-compatible'
 
 const llm = new OpenAICompatibleAdapter({
   model: 'your-model',
@@ -58,7 +58,7 @@ console.log(result)
 如果只需要快速接入 OpenAI-compatible 服务，也可以使用等价的便捷工厂：
 
 ```ts
-import { createAgent } from '@karkata/openai-compatible'
+import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
   model: 'your-model',

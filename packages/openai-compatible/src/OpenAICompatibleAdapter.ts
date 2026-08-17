@@ -1,4 +1,4 @@
-import { ModelError, type AgentMessage, type AssistantMessage, type LLMAdapter, type LLMRequest, type LLMResponse, type LLMStream, type LLMStreamEvent, type TokenUsage } from '@karkata/core'
+import { ModelError, type AgentMessage, type AssistantMessage, type LLMAdapter, type LLMRequest, type LLMResponse, type LLMStream, type LLMStreamEvent, type TokenUsage } from '@karkata-ai/core'
 import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 

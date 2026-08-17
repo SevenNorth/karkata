@@ -1,4 +1,4 @@
-# @karkata/ui
+# @karkata-ai/ui
 
 [文档](https://sevennorth.github.io/karkata/ui/) | [English](https://github.com/SevenNorth/karkata/blob/main/packages/ui/README.en.md) | 中文
 
@@ -7,13 +7,13 @@ Karkata 的框架无关 UI Store 与可选 Web Component。Store 把 Agent 状�
 ## 安装
 
 ```bash
-npm install @karkata/core @karkata/ui
+npm install @karkata-ai/core @karkata-ai/ui
 ```
 
 ## 自定义 UI
 
 ```ts
-import { createAgentUIStore } from '@karkata/ui'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const store = createAgentUIStore(agent)
 const unsubscribe = store.subscribe(() => {
@@ -32,7 +32,7 @@ store.dispose()
 ## Web Component
 
 ```ts
-import { defineKarkataPanel, type KarkataPanelElement } from '@karkata/ui/web-component'
+import { defineKarkataPanel, type KarkataPanelElement } from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')
@@ -42,7 +42,7 @@ if (panel) {
 }
 ```
 
-`@karkata/ui` 主入口在导入阶段不访问 DOM；只有显式的 `/web-component` 子路径需要浏览器 DOM。长期 transcript 连续性应由应用持有 Store，并通过 `panel.store` 传入。
+`@karkata-ai/ui` 主入口在导入阶段不访问 DOM；只有显式的 `/web-component` 子路径需要浏览器 DOM。长期 transcript 连续性应由应用持有 Store，并通过 `panel.store` 传入。
 
 完整交互契约见 [Karkata 仓库](https://github.com/SevenNorth/karkata)。
 

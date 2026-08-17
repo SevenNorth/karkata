@@ -8,7 +8,7 @@ description: 面向 TypeScript 应用的轻量 Headless Agent Runtime
   <p class="k-eyebrow">TypeScript Headless Agent Runtime</p>
   <h1>Karkata</h1>
   <p class="k-lead">管理模型调用、工具循环、持续会话、取消、流式回答与 Human-in-the-Loop，不绑定 UI 框架或模型厂商。</p>
-  <div class="k-install" aria-label="安装命令"><span aria-hidden="true">$</span><code>npm install @karkata/core @karkata/openai-compatible</code></div>
+  <div class="k-install" aria-label="安装命令"><span aria-hidden="true">$</span><code>npm install @karkata-ai/core @karkata-ai/openai-compatible</code></div>
   <div class="k-actions">
     <a class="k-action-primary" href="./guide/quick-start">开始使用</a>
     <a class="k-action-secondary" href="./ui/">UI 集成</a>

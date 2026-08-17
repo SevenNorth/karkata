@@ -5,12 +5,12 @@ description: 使用 Store 或 Web Component 构建 Karkata 界面
 
 # UI 集成
 
-`@karkata/ui` 提供 DOM-free Store 和显式浏览器入口。React、Vue 与原生视图都可以订阅同一快照，不需要把 Core 状态改写为框架专属对象。
+`@karkata-ai/ui` 提供 DOM-free Store 和显式浏览器入口。React、Vue 与原生视图都可以订阅同一快照，不需要把 Core 状态改写为框架专属对象。
 
 ## 自定义界面
 
 ```ts
-import { createAgentUIStore } from '@karkata/ui'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const store = createAgentUIStore(agent)
 const unsubscribe = store.subscribe(() => {
@@ -35,7 +35,7 @@ await store.submit('查询订单 1042')
 import {
   defineKarkataPanel,
   type KarkataPanelElement,
-} from '@karkata/ui/web-component'
+} from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')

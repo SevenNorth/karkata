@@ -1,4 +1,4 @@
-# @karkata/core
+# @karkata-ai/core
 
 [Documentation](https://sevennorth.github.io/karkata/en/guide/core) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/core/README.md)
 
@@ -7,13 +7,13 @@ The framework-neutral Karkata Agent Runtime. It provides the model loop, normali
 ## Installation
 
 ```bash
-npm install @karkata/core zod
+npm install @karkata-ai/core zod
 ```
 
 ## Usage
 
 ```ts
-import { Agent, defineTool, type LLMAdapter } from '@karkata/core'
+import { Agent, defineTool, type LLMAdapter } from '@karkata-ai/core'
 import { z } from 'zod'
 
 const llm: LLMAdapter = {
@@ -34,7 +34,7 @@ const agent = new Agent({ llm, tools: [ping], timeoutMs: 30_000 })
 const result = await agent.send('Start')
 ```
 
-`LLMAdapter` owns the provider protocol. Install `@karkata/openai-compatible` when using an OpenAI-compatible service. Tool results must be serializable, model-visible `ToolOutput` values. One Agent instance runs only one `send()` at a time; successful runs commit the session, while failed, aborted, and timed-out runs roll back.
+`LLMAdapter` owns the provider protocol. Install `@karkata-ai/openai-compatible` when using an OpenAI-compatible service. Tool results must be serializable, model-visible `ToolOutput` values. One Agent instance runs only one `send()` at a time; successful runs commit the session, while failed, aborted, and timed-out runs roll back.
 
 Read state through `subscribe()`. Receive Human-in-the-Loop questions through `subscribeRequests()` and answer them with `respond()`. When `streaming` is enabled, `state.partialResponse` is a temporary UI projection and is never added to model history.
 

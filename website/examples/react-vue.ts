@@ -1,4 +1,4 @@
-import type { AgentUIStore } from '@karkata/ui'
+import type { AgentUIStore } from '@karkata-ai/ui'
 import { useSyncExternalStore } from 'react'
 import { onUnmounted, shallowRef } from 'vue'
 

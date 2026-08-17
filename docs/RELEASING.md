@@ -63,10 +63,10 @@ npm run test:integration:real
 
 逐包运行 npm 自带的 publish dry-run，并核对名称、版本、访问级别和文件列表。首发时先发布 Core，再发布依赖 Core 的包：
 
-1. `@karkata/core`
-2. `@karkata/openai-compatible`
-3. `@karkata/javascript`
-4. `@karkata/ui`
+1. `@karkata-ai/core`
+2. `@karkata-ai/openai-compatible`
+3. `@karkata-ai/javascript`
+4. `@karkata-ai/ui`
 
 真正的 `npm publish`、Git tag 和 GitHub Release 必须由发布者显式执行。本仓库脚本不会自动完成这些动作。
 
@@ -74,7 +74,7 @@ npm run test:integration:real
 
 - 从一个新的临时项目按 registry 版本安装四个包，重复核心 ESM 和类型检查。
 - 检查 npm 页面显示中文 README，并能跳转英文版本与 LICENSE。
-- 检查 `@karkata/ui/web-component` 子路径和声明文件可解析。
+- 检查 `@karkata-ai/ui/web-component` 子路径和声明文件可解析。
 - 记录 tag、commit、npm 版本和真实 Provider smoke 证据。
 
 npm 已发布的同一版本不能覆盖。若首发存在问题，停止后续包发布；对已经发布的错误版本使用 npm deprecate 给出迁移提示，并通过新的 patch 版本修复。只有确定属于恶意或敏感数据泄漏等特殊情况时，才按 npm 的 unpublish 政策处理。

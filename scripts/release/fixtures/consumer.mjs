@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { createUnsafeJavaScriptTool } from '@karkata/javascript'
-import { createAgent } from '@karkata/openai-compatible'
-import { createAgentUIStore } from '@karkata/ui'
+import { createUnsafeJavaScriptTool } from '@karkata-ai/javascript'
+import { createAgent } from '@karkata-ai/openai-compatible'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const server = createServer((request, response) => {
   assert.equal(request.method, 'POST')

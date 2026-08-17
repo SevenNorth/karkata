@@ -2,14 +2,14 @@
 
 ## 1. 目的与边界
 
-`@karkata/ui` 是 `@karkata/core` 之上的可选展示层，包含无 DOM 的 `AgentUIStore` 和 `@karkata/ui/web-component` 浏览器入口。它不改变模型上下文、Agent 生命周期或工具协议，也不提供 Provider、凭据、持久化、Markdown 渲染和工具授权策略。
+`@karkata-ai/ui` 是 `@karkata-ai/core` 之上的可选展示层，包含无 DOM 的 `AgentUIStore` 和 `@karkata-ai/ui/web-component` 浏览器入口。它不改变模型上下文、Agent 生命周期或工具协议，也不提供 Provider、凭据、持久化、Markdown 渲染和工具授权策略。
 
 Core 的 `AgentState.messages` 是模型上下文快照，会受历史压缩和运行回滚影响。Store 的 `AgentUIState.items` 是绑定期间观察到的 UI transcript。这两个集合生命周期不同，不能互换或互相回写。
 
 ## 2. Store 契约
 
 ```ts
-import { createAgentUIStore } from '@karkata/ui'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const store = createAgentUIStore(agent)
 const unsubscribe = store.subscribe(() => {
@@ -115,7 +115,7 @@ onUnmounted(() => {
 import {
   defineKarkataPanel,
   type KarkataPanelElement,
-} from '@karkata/ui/web-component'
+} from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')!

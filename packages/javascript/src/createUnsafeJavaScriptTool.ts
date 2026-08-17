@@ -1,4 +1,4 @@
-import { defineTool, type Tool, type ToolOutput } from '@karkata/core'
+import { defineTool, type Tool, type ToolOutput } from '@karkata-ai/core'
 import { z } from 'zod'
 
 export interface UnsafeJavaScriptToolOptions {

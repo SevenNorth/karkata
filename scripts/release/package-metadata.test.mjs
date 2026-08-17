@@ -45,8 +45,8 @@ describe('release package metadata', () => {
       const englishReadme = await readFile(join(packageRoot, 'README.en.md'), 'utf8')
       assert.match(chineseReadme, /English/)
       assert.match(englishReadme, /中文/)
-      assert.match(chineseReadme, new RegExp(`@karkata/${escapeRegExp(packageName)}`))
-      assert.match(englishReadme, new RegExp(`@karkata/${escapeRegExp(packageName)}`))
+      assert.match(chineseReadme, new RegExp(`@karkata-ai/${escapeRegExp(packageName)}`))
+      assert.match(englishReadme, new RegExp(`@karkata-ai/${escapeRegExp(packageName)}`))
     }
   })
 })

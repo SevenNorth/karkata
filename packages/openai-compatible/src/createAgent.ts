@@ -1,4 +1,4 @@
-import { Agent, type AgentConfig } from '@karkata/core'
+import { Agent, type AgentConfig } from '@karkata-ai/core'
 import { OpenAICompatibleAdapter, type OpenAICompatibleAdapterConfig } from './OpenAICompatibleAdapter.js'
 
 export interface OpenAICompatibleCreateAgentConfig extends OpenAICompatibleAdapterConfig {

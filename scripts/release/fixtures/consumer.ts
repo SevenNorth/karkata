@@ -1,8 +1,8 @@
-import { Agent, type LLMAdapter } from '@karkata/core'
-import { createUnsafeJavaScriptTool } from '@karkata/javascript'
-import { createAgent, OpenAICompatibleAdapter } from '@karkata/openai-compatible'
-import { createAgentUIStore, type AgentUIState } from '@karkata/ui'
-import { defineKarkataPanel, type KarkataPanelElement } from '@karkata/ui/web-component'
+import { Agent, type LLMAdapter } from '@karkata-ai/core'
+import { createUnsafeJavaScriptTool } from '@karkata-ai/javascript'
+import { createAgent, OpenAICompatibleAdapter } from '@karkata-ai/openai-compatible'
+import { createAgentUIStore, type AgentUIState } from '@karkata-ai/ui'
+import { defineKarkataPanel, type KarkataPanelElement } from '@karkata-ai/ui/web-component'
 
 const llm: LLMAdapter = {
   async invoke(_request, { signal }) {

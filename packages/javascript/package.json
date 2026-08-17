@@ -1,5 +1,5 @@
 {
-  "name": "@karkata/javascript",
+  "name": "@karkata-ai/javascript",
   "version": "0.1.0",
   "description": "Explicitly registered unsafe JavaScript execution tool for trusted Karkata applications.",
   "license": "MIT",
@@ -36,7 +36,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@karkata/core": "0.1.0",
+    "@karkata-ai/core": "0.1.0",
     "zod": "^4.3.6"
   }
 }

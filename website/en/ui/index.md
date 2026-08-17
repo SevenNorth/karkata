@@ -5,12 +5,12 @@ description: Build Karkata interfaces with the Store or Web Component
 
 # UI Integration
 
-`@karkata/ui` provides a DOM-free Store and an explicit browser entry. React, Vue, and native views subscribe to the same snapshot without rewriting Core state into framework-specific objects.
+`@karkata-ai/ui` provides a DOM-free Store and an explicit browser entry. React, Vue, and native views subscribe to the same snapshot without rewriting Core state into framework-specific objects.
 
 ## Custom UI
 
 ```ts
-import { createAgentUIStore } from '@karkata/ui'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const store = createAgentUIStore(agent)
 const unsubscribe = store.subscribe(() => {
@@ -35,7 +35,7 @@ The same composer switches between ordinary messages and Human-in-the-Loop answe
 import {
   defineKarkataPanel,
   type KarkataPanelElement,
-} from '@karkata/ui/web-component'
+} from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')

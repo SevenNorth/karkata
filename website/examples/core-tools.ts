@@ -1,4 +1,4 @@
-import { Agent, defineTool, type LLMAdapter } from '@karkata/core'
+import { Agent, defineTool, type LLMAdapter } from '@karkata-ai/core'
 import { z } from 'zod'
 
 const orderResponseSchema = z.object({ status: z.string() })

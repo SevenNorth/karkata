@@ -5,12 +5,12 @@ description: 创建 Agent、管理会话并读取隔离状态
 
 # Core Runtime
 
-`@karkata/core` 负责 Agent 生命周期、会话、工具调度、取消和状态，不绑定模型厂商、DOM 或 Node.js API。
+`@karkata-ai/core` 负责 Agent 生命周期、会话、工具调度、取消和状态，不绑定模型厂商、DOM 或 Node.js API。
 
 ## 创建与运行
 
 ```ts
-import { Agent, type LLMAdapter } from '@karkata/core'
+import { Agent, type LLMAdapter } from '@karkata-ai/core'
 
 declare const llm: LLMAdapter
 const agent = new Agent({ llm, timeoutMs: 30_000, maxSteps: 12 })

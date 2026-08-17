@@ -6,7 +6,7 @@ import type {
   AgentResult,
   AgentState,
   AgentStateListener,
-} from '@karkata/core'
+} from '@karkata-ai/core'
 import { createAgentUIStore, type AgentUIAdapter } from './index.js'
 
 class FakeAgent implements AgentUIAdapter {

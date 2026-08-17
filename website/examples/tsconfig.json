@@ -6,10 +6,10 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "paths": {
-      "@karkata/core": ["packages/core/src/index.ts"],
-      "@karkata/openai-compatible": ["packages/openai-compatible/src/index.ts"],
-      "@karkata/ui": ["packages/ui/src/index.ts"],
-      "@karkata/ui/web-component": ["packages/ui/src/web-component.ts"]
+      "@karkata-ai/core": ["packages/core/src/index.ts"],
+      "@karkata-ai/openai-compatible": ["packages/openai-compatible/src/index.ts"],
+      "@karkata-ai/ui": ["packages/ui/src/index.ts"],
+      "@karkata-ai/ui/web-component": ["packages/ui/src/web-component.ts"]
     }
   },
   "include": ["./*.ts"]

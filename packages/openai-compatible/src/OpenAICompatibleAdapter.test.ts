@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { z } from 'zod'
-import { Agent, ModelError, type LLMResponse, type LLMStream } from '@karkata/core'
+import { Agent, ModelError, type LLMResponse, type LLMStream } from '@karkata-ai/core'
 import { createAgent, type OpenAICompatibleCreateAgentConfig, OpenAICompatibleAdapter } from './index.js'
 
 const request = { messages: [{ role: 'user' as const, content: 'find' }], tools: [] }

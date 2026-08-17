@@ -37,8 +37,8 @@
     "ai:change:status": "node scripts/ai-change.mjs status",
     "ai:change:validate": "node scripts/ai-change.mjs validate",
     "build": "npm run build --workspaces --if-present",
-    "docs:build": "npm run build -w @karkata/ui && node scripts/docs/run-vitepress.mjs build && node scripts/docs/static-output.mjs",
-    "docs:dev": "npm run build -w @karkata/ui && node scripts/docs/run-vitepress.mjs dev",
+    "docs:build": "npm run build -w @karkata-ai/ui && node scripts/docs/run-vitepress.mjs build && node scripts/docs/static-output.mjs",
+    "docs:dev": "npm run build -w @karkata-ai/ui && node scripts/docs/run-vitepress.mjs dev",
     "docs:preview": "node scripts/docs/run-vitepress.mjs preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -51,7 +51,7 @@
     "typecheck": "tsc --build --pretty false && tsc -p packages/core/tsconfig.type-tests.json --pretty false",
     "check": "npm run typecheck && npm test && npm run build",
     "clean": "node scripts/clean.mjs",
-    "demo:ui": "npm run build -w @karkata/ui && node examples/ui-demo/server.mjs",
+    "demo:ui": "npm run build -w @karkata-ai/ui && node examples/ui-demo/server.mjs",
     "test:ui-demo": "node --test examples/ui-demo/demo-agent.test.mjs examples/ui-demo/server.test.mjs"
   },
   "devDependencies": {

@@ -181,7 +181,7 @@ export interface LLMStream
 
 ```ts
 export { Agent } from './agent/Agent'
-export { OpenAICompatibleAdapter } from '@karkata/openai-compatible'
+export { OpenAICompatibleAdapter } from '@karkata-ai/openai-compatible'
 export { createUnsafeJavaScriptTool } from './javascript/createUnsafeJavaScriptTool'
 export { defineTool } from './tools/types'
 
@@ -201,7 +201,7 @@ export type {
 ### 6.1 Agent 实例
 
 ```ts
-import { createAgent } from '@karkata/openai-compatible'
+import { createAgent } from '@karkata-ai/openai-compatible'
 
 const agent = createAgent({
   model: 'qwen3.5-plus',
@@ -233,13 +233,13 @@ const agent = createAgent({
 })
 ```
 
-`@karkata/openai-compatible` 的 `createAgent()` 是 OpenAI-compatible 场景的便捷入口：Provider 配置位于顶层，Runtime 配置位于 `agent`。工厂只组合 `OpenAICompatibleAdapter` 与标准 Core `Agent`。Core 仍只依赖 `LLMAdapter` 契约，不认识默认 Provider；其他协议可实现独立 Adapter，高级使用方也可继续显式调用 `new Agent({ llm: new OpenAICompatibleAdapter(...) })`。
+`@karkata-ai/openai-compatible` 的 `createAgent()` 是 OpenAI-compatible 场景的便捷入口：Provider 配置位于顶层，Runtime 配置位于 `agent`。工厂只组合 `OpenAICompatibleAdapter` 与标准 Core `Agent`。Core 仍只依赖 `LLMAdapter` 契约，不认识默认 Provider；其他协议可实现独立 Adapter，高级使用方也可继续显式调用 `new Agent({ llm: new OpenAICompatibleAdapter(...) })`。
 
 `tools` 用于构造时批量装配固定能力。普通 Tool 默认属于 `global` scope；需要分组管理时使用 `{ tool, scope }`。scope 是任意非空分组键，Core 不解释其业务含义，不与前端路由绑定。初始化批次会先整体校验，任一无效项或重名都会使构造失败。
 
 Core 始终提供不可覆盖的通用默认提示词。`systemPrompt` 是构造时确定的静态应用增强；`resolveInstructions` 是每次调用模型前执行的同步或异步指导函数。Resolver 只返回一段可信字符串，不需要返回 scope 结构；宿主可从传入的当前普通注册工具信息自行判断页面、模块或业务上下文。`ask_user` 等 Runtime 特殊能力由对应配置表达，不伪造用户 scope，也不进入 Resolver 的 Registry 工具投影。
 
-默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此 `@karkata/ui` 不会把内部提示词作为对话消息回显。
+默认提示词、静态增强和动态指导合并为一条临时 system 消息，只进入当次 LLM 请求，不写入会话历史和 `AgentState.messages`，因此 `@karkata-ai/ui` 不会把内部提示词作为对话消息回显。
 
 `contextBudget` 是可选的调用前输入预算。`maxTokens` 由使用方根据模型能力和输出预留确定；`estimateTokens` 接收即将发送给 Adapter 的完整冻结 `LLMRequest` 以及当前 `runId`、`step` 和 `AbortSignal`。Core 不绑定 tokenizer，也不通过 Provider `/models` 猜测上限。
 
@@ -601,12 +601,12 @@ agent.registerTool(javascriptTool)
 
 ## 13. 前端框架无关 UI
 
-Core 通过 `send()`、`subscribe()`、`subscribeRequests()`、`respond()` 和 `abort()` 提供 Headless 交互契约。可选的 `@karkata/ui` 包在 Core 之上提供无 DOM 的 `AgentUIStore` 和浏览器 Web Component：
+Core 通过 `send()`、`subscribe()`、`subscribeRequests()`、`respond()` 和 `abort()` 提供 Headless 交互契约。可选的 `@karkata-ai/ui` 包在 Core 之上提供无 DOM 的 `AgentUIStore` 和浏览器 Web Component：
 
 ```text
-@karkata/core    # Headless Runtime
-@karkata/ui      # 框架无关 Store
-@karkata/ui/web-component  # 可选 Web Component
+@karkata-ai/core    # Headless Runtime
+@karkata-ai/ui      # 框架无关 Store
+@karkata-ai/ui/web-component  # 可选 Web Component
 ```
 
 React、Vue 和原生 UI 通过 `createAgentUIStore(agent)` 订阅 `AgentUIState`，并统一调用 `store.submit(input)`。Store 将 Core 的状态订阅和请求订阅组合成一个 composer：普通状态为 `message`，等待用户输入时为带 `requestId`、`callId` 和问题正文的 `response`。原始 `send()` 在等待回答期间仍未结束，因此 Store 不使用覆盖整个 Promise 的全局提交锁；Core 并发门禁仍保证同一 Agent 最多运行一次。
@@ -620,7 +620,7 @@ Human-in-the-Loop 问题和被接受的回答在 Store 中表现为普通 Assist
 Web Component 显式注册且导入阶段不访问 DOM：
 
 ```ts
-import { defineKarkataPanel } from '@karkata/ui/web-component'
+import { defineKarkataPanel } from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector('karkata-panel')
@@ -648,8 +648,8 @@ const unsubscribe = agent.subscribeRequests((request) => {
 ## 14. 完整使用示例
 
 ```ts
-import { Agent, defineTool } from '@karkata/core'
-import { OpenAICompatibleAdapter } from '@karkata/openai-compatible'
+import { Agent, defineTool } from '@karkata-ai/core'
+import { OpenAICompatibleAdapter } from '@karkata-ai/openai-compatible'
 import { z } from 'zod'
 
 const agent = new Agent({
@@ -762,9 +762,9 @@ OpenAI-compatible Adapter 使用以下规则：网络失败、HTTP 429 和 HTTP 
 
 - 已完成：宿主注入的历史摘要与裁剪策略。
 - 已完成：Human-in-the-Loop 用户输入协议。
-- 已完成：框架无关 Store 与基于 Web Component 的可选 `@karkata/ui`。
+- 已完成：框架无关 Store 与基于 Web Component 的可选 `@karkata-ai/ui`。
 - 已完成：Core 与 OpenAI-compatible 的流式回答基础。
-- 已完成：`@karkata/ui` 的增量 Assistant 消息投影。
+- 已完成：`@karkata-ai/ui` 的增量 Assistant 消息投影。
 - 已完成：`0.1.0` 发布物准备、双语文档与隔离消费者/真实 Provider 验证入口。
 - 暂缓：checkpoint 与可插拔持久化；出现明确的跨刷新恢复需求后再单独设计。
 - 按需：原生 Provider 不透明 compaction item 适配。

@@ -8,7 +8,7 @@ description: 通过 shallowRef 将 Store 快照接入 Vue
 Store 快照已经隔离，无需深层代理。使用 `shallowRef` 保存最新引用：
 
 ```ts
-import type { AgentUIStore } from '@karkata/ui'
+import type { AgentUIStore } from '@karkata-ai/ui'
 import { onUnmounted, shallowRef } from 'vue'
 
 export function useAgentState(store: AgentUIStore) {

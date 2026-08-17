@@ -8,7 +8,7 @@ description: A lightweight, headless agent runtime for TypeScript applications
   <p class="k-eyebrow">TypeScript Headless Agent Runtime</p>
   <h1>Karkata</h1>
   <p class="k-lead">Manage model calls, tool loops, persistent sessions, cancellation, streaming responses, and Human-in-the-Loop input without binding your application to a UI framework or model provider.</p>
-  <div class="k-install" aria-label="Install command"><span aria-hidden="true">$</span><code>npm install @karkata/core @karkata/openai-compatible</code></div>
+  <div class="k-install" aria-label="Install command"><span aria-hidden="true">$</span><code>npm install @karkata-ai/core @karkata-ai/openai-compatible</code></div>
   <div class="k-actions">
     <a class="k-action-primary" href="./guide/quick-start">Get started</a>
     <a class="k-action-secondary" href="./ui/">UI integration</a>

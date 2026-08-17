@@ -8,20 +8,20 @@ Karkata 是面向 TypeScript 应用的轻量 Headless Agent Runtime。它管理�
 
 | 包 | 用途 |
 | --- | --- |
-| `@karkata/core` | Agent 生命周期、规范化消息、工具、状态、取消和会话 |
-| `@karkata/openai-compatible` | OpenAI-compatible Chat Completions Adapter 与便捷 Agent 工厂 |
-| `@karkata/javascript` | 显式注册、仅适用于可信代码的非沙箱 JavaScript 工具 |
-| `@karkata/ui` | 框架无关 UI Store 与可选 Web Component 面板 |
+| `@karkata-ai/core` | Agent 生命周期、规范化消息、工具、状态、取消和会话 |
+| `@karkata-ai/openai-compatible` | OpenAI-compatible Chat Completions Adapter 与便捷 Agent 工厂 |
+| `@karkata-ai/javascript` | 显式注册、仅适用于可信代码的非沙箱 JavaScript 工具 |
+| `@karkata-ai/ui` | 框架无关 UI Store 与可选 Web Component 面板 |
 
 ## 快速开始
 
 ```bash
-npm install @karkata/core @karkata/openai-compatible zod
+npm install @karkata-ai/core @karkata-ai/openai-compatible zod
 ```
 
 ```ts
-import { defineTool } from '@karkata/core'
-import { createAgent } from '@karkata/openai-compatible'
+import { defineTool } from '@karkata-ai/core'
+import { createAgent } from '@karkata-ai/openai-compatible'
 import { z } from 'zod'
 
 const getOrder = defineTool({
@@ -58,10 +58,10 @@ console.log(result)
 
 ## UI
 
-`@karkata/ui` 的 Store 可以被 React、Vue 或原生视图订阅：
+`@karkata-ai/ui` 的 Store 可以被 React、Vue 或原生视图订阅：
 
 ```ts
-import { createAgentUIStore } from '@karkata/ui'
+import { createAgentUIStore } from '@karkata-ai/ui'
 
 const store = createAgentUIStore(agent)
 const unsubscribe = store.subscribe(() => render(store.getSnapshot()))
@@ -75,7 +75,7 @@ store.dispose()
 浏览器中也可以使用显式、SSR-safe 的 Web Component 入口：
 
 ```ts
-import { defineKarkataPanel, type KarkataPanelElement } from '@karkata/ui/web-component'
+import { defineKarkataPanel, type KarkataPanelElement } from '@karkata-ai/ui/web-component'
 
 defineKarkataPanel()
 const panel = document.querySelector<KarkataPanelElement>('karkata-panel')
@@ -91,7 +91,7 @@ npm run demo:ui
 ## 安全边界
 
 - 不要把长期模型 API Key 放入公开浏览器包；使用应用后端代理或短期令牌。
-- `@karkata/javascript` 在宿主当前 Realm 执行代码，不是安全沙箱，只能处理可信代码。
+- `@karkata-ai/javascript` 在宿主当前 Realm 执行代码，不是安全沙箱，只能处理可信代码。
 - Human-in-the-Loop 问题不是授权边界；敏感工具仍必须在服务端检查权限。
 - `AbortSignal` 保证 Runtime 及时停止等待，不保证不支持取消的外部系统一定停止副作用。
 

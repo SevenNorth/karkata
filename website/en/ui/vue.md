@@ -8,7 +8,7 @@ description: Connect Store snapshots to Vue with shallowRef
 Store snapshots are already isolated and do not need deep proxies. Keep the latest reference in a `shallowRef`:
 
 ```ts
-import type { AgentUIStore } from '@karkata/ui'
+import type { AgentUIStore } from '@karkata-ai/ui'
 import { onUnmounted, shallowRef } from 'vue'
 
 export function useAgentState(store: AgentUIStore) {
