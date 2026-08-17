@@ -1,6 +1,6 @@
 # @karkata/core
 
-[English](https://github.com/SevenNorth/karkata/blob/main/packages/core/README.en.md) | 中文
+[文档](https://sevennorth.github.io/karkata/guide/core) | [English](https://github.com/SevenNorth/karkata/blob/main/packages/core/README.en.md) | 中文
 
 Karkata 的框架无关 Agent Runtime。它提供模型循环、规范化消息、工具注册、持续会话、取消与超时、流式状态和 Human-in-the-Loop 协议，不依赖 DOM 或特定模型厂商。
 

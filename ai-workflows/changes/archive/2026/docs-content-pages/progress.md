@@ -2,10 +2,10 @@
 
 ## 当前状态
 
-- 当前任务：任务 8/9，提交并推送后跟踪 Pages workflow，执行远端 smoke
-- TDD 阶段：本地 Red-Green-Refactor 与完整门禁已完成
-- 最后完成：完整本地门禁与 production browser QA；26 路由、搜索、Demo、发布与四包边界通过
-- 阻塞项：`https://sevennorth.github.io/karkata/` 与公开 Pages API 当前均返回 404；等待 push 后的 GitHub Actions/Pages 外部状态
+- 当前任务：完成验收并归档 change
+- TDD 阶段：Red-Green-Refactor、完整门禁与远端验收已完成
+- 最后完成：`a04d56b` Pages 部署与远端 26 路由、搜索、Demo、截图、控制台和网络 smoke
+- 阻塞项：无
 
 ## 已修改文件
 
@@ -22,6 +22,7 @@
 - `scripts/docs/pages-workflow.test.mjs`
 - `scripts/docs/site-contract.mjs`、`scripts/docs/static-output.mjs`、相邻测试与 browser smoke
 - `package.json`、`package-lock.json`
+- 根与四个包的中英文 README
 
 ## 关键决策
 
@@ -46,9 +47,10 @@
 - `npm run test:coverage`：statements 90.52%，lines 94.45%。
 - `npm run test:release`：7 项通过；`npm run test:package`：4 个 tarball smoke 通过。
 - `npm pack --workspaces --dry-run`：仅四个发布包。
-- 外部状态：稳定 URL 与 GitHub Pages API 均返回 404，尚未部署。
+- Actions run `31992881568` 第一次因 Pages 未启用失败，启用后第二次运行 build/deploy 成功。
+- `https://sevennorth.github.io/karkata/` 返回 200；远端 26 路由、两张截图、搜索、离线 Demo、控制台与同源网络检查通过。
 - 第一阶段 `docs-demo-site` 已通过 production 浏览器 QA、发布门禁和四包 tarball 边界验证。
 
 ## 下一步
 
-- 提交并推送到 `main`，跟踪 Pages workflow；如仓库尚未启用 Pages，设置 Source = GitHub Actions，部署成功后运行远端 smoke，再更新 README、完成任务 8/9 并归档。
+- 重新运行 README 相关发布门禁，流转 completed 并归档。

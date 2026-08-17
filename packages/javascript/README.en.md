@@ -1,6 +1,6 @@
 # @karkata/javascript
 
-English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/javascript/README.md)
+[Documentation](https://sevennorth.github.io/karkata/en/guide/tools) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/javascript/README.md)
 
 An explicitly registered JavaScript execution tool for Karkata. It runs code in the host's current Realm. It is **not a security sandbox** and must only be used with fully trusted scripts.
 

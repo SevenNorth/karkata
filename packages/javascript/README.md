@@ -1,6 +1,6 @@
 # @karkata/javascript
 
-[English](https://github.com/SevenNorth/karkata/blob/main/packages/javascript/README.en.md) | 中文
+[文档](https://sevennorth.github.io/karkata/guide/tools) | [English](https://github.com/SevenNorth/karkata/blob/main/packages/javascript/README.en.md) | 中文
 
 为 Karkata 提供显式注册的 JavaScript 执行工具。它在宿主当前 Realm 中运行代码，**不是安全沙箱**，只能用于完全可信的脚本。
 

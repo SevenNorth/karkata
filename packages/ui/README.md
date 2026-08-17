@@ -1,6 +1,6 @@
 # @karkata/ui
 
-[English](https://github.com/SevenNorth/karkata/blob/main/packages/ui/README.en.md) | 中文
+[文档](https://sevennorth.github.io/karkata/ui/) | [English](https://github.com/SevenNorth/karkata/blob/main/packages/ui/README.en.md) | 中文
 
 Karkata 的框架无关 UI Store 与可选 Web Component。Store 把 Agent 状态、Human-in-the-Loop 请求和流式回答投影为稳定的 UI transcript；React、Vue 和原生视图都可以自行订阅。
 

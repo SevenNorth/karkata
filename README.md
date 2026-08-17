@@ -1,6 +1,6 @@
 # Karkata
 
-[English](https://github.com/SevenNorth/karkata/blob/main/README.en.md) | 中文
+[文档](https://sevennorth.github.io/karkata/) | [English](https://github.com/SevenNorth/karkata/blob/main/README.en.md) | 中文
 
 Karkata 是面向 TypeScript 应用的轻量 Headless Agent Runtime。它管理模型调用、多步工具执行、持续会话、取消、流式回答和 Human-in-the-Loop，但不绑定 DOM、UI 框架、模型厂商或业务环境。
 

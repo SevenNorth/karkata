@@ -1,6 +1,6 @@
 # @karkata/openai-compatible
 
-English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/openai-compatible/README.md)
+[Documentation](https://sevennorth.github.io/karkata/en/provider/openai-compatible) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/openai-compatible/README.md)
 
 Karkata's OpenAI-compatible Chat Completions adapter. It includes the concise `createAgent()` factory and the standalone `OpenAICompatibleAdapter` for direct use with Core.
 

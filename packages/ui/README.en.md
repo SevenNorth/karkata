@@ -1,6 +1,6 @@
 # @karkata/ui
 
-English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/ui/README.md)
+[Documentation](https://sevennorth.github.io/karkata/en/ui/) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/ui/README.md)
 
 Karkata's framework-neutral UI Store and optional Web Component. The Store projects Agent state, Human-in-the-Loop requests, and streaming responses into a stable UI transcript that React, Vue, and native views can subscribe to directly.
 

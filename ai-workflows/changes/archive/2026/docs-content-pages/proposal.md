@@ -46,8 +46,8 @@
 - [x] 全站内部链接、图片、路由、搜索和 `/karkata/` base 构建自动检查通过。
 - [x] pull request workflow 不拥有生产部署权限；`main`/手动部署使用最小 Pages 权限和并发保护。
 - [x] `website/.vitepress/dist` 保持未跟踪，部署只使用与 workflow run/commit 关联的 Pages artifact。
-- [ ] `https://sevennorth.github.io/karkata/` 可加载中英文页面、静态资源、搜索和离线 Demo，无资源 404 或外部模型请求。
-- [ ] 根与包 README 在部署成功后链接到稳定页面，npm tarball 内容仍符合发布白名单。
+- [x] `https://sevennorth.github.io/karkata/` 可加载中英文页面、静态资源、搜索和离线 Demo，无资源 404 或外部模型请求。
+- [x] 根与包 README 在部署成功后链接到稳定页面，npm tarball 内容仍符合发布白名单。
 - [x] `npm run check`、发布测试、package smoke、站点测试、production build 和 workspace dry-run pack 全部通过。
 
 ## 风险

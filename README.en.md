@@ -1,6 +1,6 @@
 # Karkata
 
-English | [中文](https://github.com/SevenNorth/karkata/blob/main/README.md)
+[Documentation](https://sevennorth.github.io/karkata/en/) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/README.md)
 
 Karkata is a lightweight, headless agent runtime for TypeScript applications. It manages model calls, multi-step tool execution, persistent sessions, cancellation, streaming responses, and Human-in-the-Loop input without binding the runtime to a DOM, UI framework, model provider, or business environment.
 

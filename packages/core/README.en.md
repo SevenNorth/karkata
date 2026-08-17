@@ -1,6 +1,6 @@
 # @karkata/core
 
-English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/core/README.md)
+[Documentation](https://sevennorth.github.io/karkata/en/guide/core) | English | [中文](https://github.com/SevenNorth/karkata/blob/main/packages/core/README.md)
 
 The framework-neutral Karkata Agent Runtime. It provides the model loop, normalized messages, tool registration, persistent sessions, cancellation and timeout handling, streaming state, and Human-in-the-Loop protocols without depending on a DOM or a specific model provider.
 
