@@ -25,4 +25,4 @@ Tool output enters model context. Return a minimal safe DTO instead of raw datab
 
 `@karkata-ai/javascript` executes code in the host's current Realm. It is not a security sandbox and must only run fully trusted scripts, never user input, third-party content, or untrusted model-generated code.
 
-This site's offline demo uses a deterministic fake Agent. It reads no API key and calls no model or third-party service.
+This site's offline demo uses a deterministic fake Agent. It reads no API key and calls no model or third-party service. For production applications, read [Production Security](/en/production/security) and the [Deployment Checklist](/en/production/deployment).

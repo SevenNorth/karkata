@@ -52,7 +52,7 @@ npm run test:integration:real
 发布者必须人工确认：
 
 - `npm whoami` 返回预期账户。
-- 账户拥有 `@karkata` scope 四个新包的公开发布权限。
+- 账户拥有 `@karkata-ai` scope 四个新包的公开发布权限。
 - 账户和组织的 2FA、OTP 或 trusted publishing 要求已经满足。
 - registry 是预期的 `https://registry.npmjs.org/`，没有被项目或用户配置重定向。
 - 包名尚未被其他账户占用；首次查询返回 404 只表示 registry 当前没有公开包，不证明当前账户拥有 scope。

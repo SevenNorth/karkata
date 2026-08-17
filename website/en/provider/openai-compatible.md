@@ -24,3 +24,5 @@ Read API keys only in a trusted server or same-origin proxy. Never place long-li
 The Adapter retries network errors, 429, and 5xx only. It does not retry 401, 403, ordinary 4xx, validation failures, or invalid responses. Retries and stream reads receive the current run's `AbortSignal`. Use `transformRequest` only for vendor field compatibility and never log an unredacted request.
 
 For manual assembly, create `OpenAICompatibleAdapter` and pass it to `Agent` as `llm`; both entry points use the same Runtime.
+
+For production proxy, credential, and SSE guidance, see [Production Architecture](/en/production/architecture), [Configuration](/en/production/configuration), and the [Deployment Checklist](/en/production/deployment).

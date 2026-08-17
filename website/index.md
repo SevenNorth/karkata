@@ -11,6 +11,7 @@ description: 面向 TypeScript 应用的轻量 Headless Agent Runtime
   <div class="k-install" aria-label="安装命令"><span aria-hidden="true">$</span><code>npm install @karkata-ai/core @karkata-ai/openai-compatible</code></div>
   <div class="k-actions">
     <a class="k-action-primary" href="./guide/quick-start">开始使用</a>
+    <a class="k-action-secondary" href="./production/architecture">生产接入</a>
     <a class="k-action-secondary" href="./ui/">UI 集成</a>
   </div>
 </div>
@@ -29,6 +30,6 @@ description: 面向 TypeScript 应用的轻量 Headless Agent Runtime
 
 <div class="k-next-band">
   <a href="./guide/quick-start"><strong>快速开始</strong><span>创建 Agent 并发送第一条消息</span></a>
+  <a href="./production/architecture"><strong>生产上线</strong><span>架构、安全、配置、错误与部署检查</span></a>
   <a href="./ui/"><strong>自定义界面</strong><span>使用 Store、React、Vue 或 Web Component</span></a>
-  <a href="./guide/security"><strong>安全边界</strong><span>凭据、工具、取消与浏览器部署</span></a>
 </div>

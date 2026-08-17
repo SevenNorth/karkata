@@ -25,4 +25,4 @@ Human-in-the-Loop 问题可以补充信息，但不是授权边界。涉及付�
 
 `@karkata-ai/javascript` 在宿主当前 Realm 执行代码，不是安全沙箱。它只能运行完全可信的脚本，不能处理用户输入、第三方内容或不可信模型代码。
 
-本站离线 Demo 使用确定性假 Agent，不读取 API Key，也不调用模型或第三方服务。
+本站离线 Demo 使用确定性假 Agent，不读取 API Key，也不调用模型或第三方服务。生产应用请阅读[生产安全](/production/security)与[部署检查](/production/deployment)。

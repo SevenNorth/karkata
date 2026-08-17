@@ -26,6 +26,7 @@ describe('documentation site contract', () => {
   it('declares the complete mirrored page IDs', () => {
     assert.deepEqual(pages.map((page) => page.id), [
       'home', 'quick-start', 'core', 'tools', 'streaming', 'human-input',
+      'production-architecture', 'production-security', 'production-configuration', 'production-errors', 'production-deployment',
       'ui-overview', 'react', 'vue', 'web-component', 'openai-compatible', 'api', 'security',
     ])
     assert.deepEqual(pages.map(({ zh, en }) => ({ zh, en })), [
@@ -35,6 +36,11 @@ describe('documentation site contract', () => {
       { zh: '/guide/tools', en: '/en/guide/tools' },
       { zh: '/guide/streaming', en: '/en/guide/streaming' },
       { zh: '/guide/human-input', en: '/en/guide/human-input' },
+      { zh: '/production/architecture', en: '/en/production/architecture' },
+      { zh: '/production/security', en: '/en/production/security' },
+      { zh: '/production/configuration', en: '/en/production/configuration' },
+      { zh: '/production/errors', en: '/en/production/errors' },
+      { zh: '/production/deployment', en: '/en/production/deployment' },
       { zh: '/ui/', en: '/en/ui/' },
       { zh: '/ui/react', en: '/en/ui/react' },
       { zh: '/ui/vue', en: '/en/ui/vue' },

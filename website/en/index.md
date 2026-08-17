@@ -11,6 +11,7 @@ description: A lightweight, headless agent runtime for TypeScript applications
   <div class="k-install" aria-label="Install command"><span aria-hidden="true">$</span><code>npm install @karkata-ai/core @karkata-ai/openai-compatible</code></div>
   <div class="k-actions">
     <a class="k-action-primary" href="./guide/quick-start">Get started</a>
+    <a class="k-action-secondary" href="./production/architecture">Production</a>
     <a class="k-action-secondary" href="./ui/">UI integration</a>
   </div>
 </div>
@@ -29,6 +30,6 @@ description: A lightweight, headless agent runtime for TypeScript applications
 
 <div class="k-next-band">
   <a href="./guide/quick-start"><strong>Quick start</strong><span>Create an Agent and send the first message</span></a>
+  <a href="./production/architecture"><strong>Production</strong><span>Architecture, security, configuration, errors, and deployment</span></a>
   <a href="./ui/"><strong>Custom UI</strong><span>Use the Store, React, Vue, or Web Component</span></a>
-  <a href="./guide/security"><strong>Security</strong><span>Credentials, tools, cancellation, and browser deployment</span></a>
 </div>

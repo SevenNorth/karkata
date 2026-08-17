@@ -24,3 +24,5 @@ const agent = createAgent({
 Adapter 只重试网络错误、429 和 5xx；401、403、普通 4xx、校验错误和无效响应不会重试。所有重试和流读取都接收当前运行的 `AbortSignal`。`transformRequest` 只用于兼容供应商字段，不应记录未脱敏请求。
 
 需要手动装配时可创建 `OpenAICompatibleAdapter` 并作为 `llm` 传给 `Agent`；两种入口使用相同 Runtime。
+
+生产环境的代理、凭据和 SSE 检查见[生产架构](/production/architecture)、[生产配置](/production/configuration)和[部署检查](/production/deployment)。
