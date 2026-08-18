@@ -28,7 +28,7 @@ const responseSchema = z.object({
       })).optional(),
     }),
   })).min(1),
-  usage: usageSchema.optional(),
+  usage: usageSchema.nullable().optional(),
 })
 
 const streamChunkSchema = z.object({
@@ -47,7 +47,7 @@ const streamChunkSchema = z.object({
     }),
     finish_reason: z.string().nullable().optional(),
   })),
-  usage: usageSchema.optional(),
+  usage: usageSchema.nullable().optional(),
 })
 
 export class OpenAICompatibleAdapter implements LLMAdapter {

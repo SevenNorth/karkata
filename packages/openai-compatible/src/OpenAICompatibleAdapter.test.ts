@@ -141,6 +141,19 @@ describe('OpenAICompatibleAdapter', () => {
     expect(body.stream).toBe(true)
   })
 
+  it('accepts null usage while ignoring provider reasoning extensions', async () => {
+    const fetch = vi.fn(async () => sseResponse([
+      'data: {"choices":[{"index":0,"delta":{"reasoning_content":"We","role":"assistant"}}],"usage":null}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}],"usage":null}\n\n',
+      'data: [DONE]\n\n',
+    ]))
+    const adapter = new OpenAICompatibleAdapter({ model: 'test', baseURL: 'https://llm.test/v1', fetch })
+
+    await expect(consumeStream(adapter.stream!(request, { signal: new AbortController().signal }))).resolves.toEqual({
+      deltas: ['done'], response: { message: { role: 'assistant', content: 'done' } },
+    })
+  })
+
   it('assembles fragmented streaming tool calls before returning the final response', async () => {
     const fetch = vi.fn(async () => sseResponse([
       'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"look","arguments":"{\\"id\\":"}}]},"finish_reason":null}]}\n\n',
