@@ -1,6 +1,6 @@
 {
   "name": "@karkata-ai/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Framework-neutral agent runtime with tools, sessions, cancellation, streaming, and human input.",
   "license": "MIT",
   "repository": {
@@ -12,7 +12,13 @@
   "bugs": {
     "url": "https://github.com/SevenNorth/karkata/issues"
   },
-  "keywords": ["ai", "agent", "runtime", "tools", "typescript"],
+  "keywords": [
+    "ai",
+    "agent",
+    "runtime",
+    "tools",
+    "typescript"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -29,7 +35,12 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "README.en.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run src",
